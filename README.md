@@ -5,6 +5,9 @@ This project is part of a Master's class at KAIST.
 python v3.12
 
 ## Description
-we can easily generate time-series data
-execute .ipynb files
+Our objective is to generate plausible synthetic time-series data
+
+try .ipynb files 
 modifying the yaml files in the configs, you can conduct various experiments
+
+

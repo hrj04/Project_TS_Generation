@@ -1,5 +1,4 @@
 import os
-
 from pathlib import Path
 from tqdm.auto import tqdm
 from torch.optim import Adam
@@ -14,7 +13,6 @@ class Trainer(object):
         self.save_cycle = self.train_epochs // 10
         self.dl = cycle(dataloader)        
         self.milestone = 0
-
         self.results_folder = Path(config['solver']['results_folder'] + f'_{model.seq_length}')
         os.makedirs(self.results_folder, exist_ok=True)
 
@@ -43,5 +41,3 @@ class Trainer(object):
                 curr_epoch += 1
 
                 pbar.update(1)
-                
-        print('training complete')
