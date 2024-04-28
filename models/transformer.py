@@ -4,13 +4,11 @@ import torch.nn.functional as F
 
 
 class Transformer(nn.Module):
-    def __init__(
-        self,
-        n_feat,
-        n_embd,
-        n_heads,
-        mlp_hidden_times,
-    ):
+    def __init__(self,
+                 n_feat,
+                 n_embd,
+                 n_heads,
+                 mlp_hidden_times):
         super().__init__()
         self.embedding = Conv_MLP(n_feat, n_embd)
         self.inverse = Conv_MLP(n_embd, n_feat)
@@ -24,7 +22,6 @@ class Transformer(nn.Module):
                                condition_dim=n_embd)
 
     def forward(self, input):
-        
         # encoding
         embedding = self.embedding(input)
         enc_cond = self.encoder(embedding)
@@ -37,22 +34,19 @@ class Transformer(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(
-        self,
-        n_embd,
-        n_heads,
-        mlp_hidden_times,
-    ):
+    def __init__(self,
+                 n_embd,
+                 n_heads,
+                 mlp_hidden_times):
         super().__init__()
+        self.hidden_dim = mlp_hidden_times * n_embd
         self.ln = nn.LayerNorm(n_embd)
-        self.attn = FullAttention(
-                n_embd=n_embd,
-                n_heads=n_heads,
-            )   
+        self.attn = FullAttention(n_embd=n_embd,
+                                  n_heads=n_heads)   
         self.mlp = nn.Sequential(
-                nn.Linear(n_embd, mlp_hidden_times * n_embd),
-                nn.GELU(),
-                nn.Linear(mlp_hidden_times * n_embd, n_embd),
+            nn.Linear(n_embd, self.hidden_dim),
+            nn.GELU(),
+            nn.Linear(self.hidden_dim, n_embd),
             )
         
     def forward(self, x_emb):
@@ -64,31 +58,26 @@ class Encoder(nn.Module):
   
     
 class Decoder(nn.Module):
-    def __init__(
-        self,
-        n_feat,
-        n_embd,
-        n_heads,
-        mlp_hidden_times,
-        condition_dim    
-    ):
-      super().__init__()
-      self.ln = nn.LayerNorm(n_embd)
-      self.full_attn = FullAttention(
-                n_embd=n_embd,
-                n_heads=n_heads,
-                )
-      self.cross_attn = CrossAttention(
-                n_embd=n_embd,
-                condition_embd=condition_dim,
-                n_heads=n_heads,
-                )
-      self.mlp = nn.Sequential(
-            nn.Linear(n_embd, mlp_hidden_times * n_embd),
+    def __init__(self,
+                 n_feat,
+                 n_embd,
+                 n_heads,
+                 mlp_hidden_times,
+                 condition_dim):
+        super().__init__()
+        self.hidden_dim = mlp_hidden_times * n_embd
+        self.ln = nn.LayerNorm(n_embd)
+        self.full_attn = FullAttention(n_embd=n_embd,
+                                       n_heads=n_heads,)
+        self.cross_attn = CrossAttention(n_embd=n_embd,
+                                         condition_embd=condition_dim,
+                                         n_heads=n_heads,)
+        self.mlp = nn.Sequential(
+            nn.Linear(n_embd, self.hidden_dim),
             nn.GELU(),
-            nn.Linear(mlp_hidden_times * n_embd, n_embd),
+            nn.Linear(self.hidden_dim, n_embd),
         )
-      self.linear = nn.Linear(n_embd, n_feat)
+        self.linear = nn.Linear(n_embd, n_feat)
 
     def forward(self, x_emb, encoder_output):
         a, _ = self.full_attn(self.ln(x_emb))
@@ -106,6 +95,7 @@ class FullAttention(nn.Module):
                  n_heads
     ):
         super().__init__()
+        self.n_heads = n_heads
         assert n_embd % n_heads == 0
         
         # key, query, value projections for all heads
@@ -115,7 +105,6 @@ class FullAttention(nn.Module):
 
         # output projection
         self.proj = nn.Linear(n_embd, n_embd)
-        self.n_heads = n_heads
 
     def forward(self, x):
         B, T, C = x.size()
@@ -130,6 +119,8 @@ class FullAttention(nn.Module):
         att = att.mean(dim=1, keepdim=False) # (B, T, T)
 
         # output projection
+        y = self.proj(y)
+        
         return y, att
 
 
@@ -167,6 +158,8 @@ class CrossAttention(nn.Module):
         att = att.mean(dim=1, keepdim=False) # (B, T, T)
 
         # output projection
+        y = self.proj(y)
+        
         return y, att
 
 
