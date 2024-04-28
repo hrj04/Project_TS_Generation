@@ -1,0 +1,16 @@
+finance-datareader
+numpy
+pandas
+scipy
+torch
+wandb
+matplotlib
+plotly
+beautifulsoup4
+einops
+ipykernel
+pyyaml
+scikit-learn
+seaborn
+tqdm
+ema_pytorch
