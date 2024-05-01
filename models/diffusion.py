@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 from tqdm.auto import tqdm
 from models.transformer import Transformer
-from utils.utils import extract, cosine_beta_schedule
+from utils.utils import extract, cosine_beta_schedule, linear_beta_schedule
 
 
 class Diffusion_TS(nn.Module):
@@ -15,14 +15,19 @@ class Diffusion_TS(nn.Module):
             n_embd,
             timesteps,
             loss_type,
+            beta_sch,
             n_heads,
             mlp_hidden_times,
+            n_layer_enc,
+            n_layer_dec
     ):
         super().__init__()
         self.transformer = Transformer(n_feat=n_feat, 
                                        n_embd=n_embd,
                                        n_heads=n_heads, 
-                                       mlp_hidden_times=mlp_hidden_times)
+                                       mlp_hidden_times=mlp_hidden_times,
+                                       n_layer_enc=n_layer_enc,
+                                       n_layer_dec=n_layer_dec)
         self.timesteps = int(timesteps)
         self.loss_fn = F.l1_loss if loss_type == "l1" else F.l2_loss
         self.seq_length = seq_length
@@ -32,7 +37,7 @@ class Diffusion_TS(nn.Module):
         register_buffer = lambda name, val: self.register_buffer(name, val.to(torch.float32))
 
         # diffusion
-        register_buffer('betas', cosine_beta_schedule(timesteps))
+        register_buffer('betas', cosine_beta_schedule(timesteps) if beta_sch=="cosine" else linear_beta_schedule(timesteps))
         register_buffer('alphas', 1. - self.betas)
         register_buffer('alphas_cumprod', torch.cumprod(self.alphas, dim=0))
         register_buffer('alphas_cumprod_prev', F.pad(self.alphas_cumprod[:-1], (1, 0), value=1.))

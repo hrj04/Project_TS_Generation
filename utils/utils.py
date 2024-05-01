@@ -2,7 +2,8 @@ import math
 import yaml
 import torch
 import importlib
-
+import numpy as np
+import scipy
 
 def cycle(dl):
     while True:
@@ -36,6 +37,12 @@ def extract(a, t, x_shape):
     
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
+def linear_beta_schedule(timesteps):
+    scale = 1000 / timesteps
+    beta_start = scale * 0.0001
+    beta_end = scale * 0.02
+    return torch.linspace(beta_start, beta_end, timesteps).float()
+
 def cosine_beta_schedule(timesteps, s=0.008):
     """
     cosine schedule
@@ -48,3 +55,12 @@ def cosine_beta_schedule(timesteps, s=0.008):
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
     
     return torch.clip(betas, 0, 0.999)
+
+
+def display_scores(results):
+   mean = np.mean(results)
+   sigma = scipy.stats.sem(results)
+   sigma = sigma * scipy.stats.t.ppf((1 + 0.95) / 2., 5-1)
+  #  sigma = 1.96*(np.std(results)/np.sqrt(len(results)))
+   print(f'Final Score: {mean:0.5f} \xB1 {sigma:0.5f}')
+   

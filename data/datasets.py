@@ -18,7 +18,7 @@ class SineDataset(Dataset):
                  period='train',
                  ):
         super().__init__()
-        self.dir = './output/ground_truth'
+        self.dir = './output'
         os.makedirs(self.dir, exist_ok=True)
         self.window = window
         self.feature_dim = feature_dim
@@ -70,7 +70,7 @@ class StockDataset(Dataset):
         self.data = self.generate_stock_sample(raw_df, window)
         self.window = window
         self.feature_dim = self.data.shape[-1]
-        self.dir = './output/ground_truth'
+        self.dir = './output'
         os.makedirs(self.dir, exist_ok=True)
         
         self.normalize = normalize
@@ -130,7 +130,7 @@ class SyntheticDataset(Dataset):
                  ):
         self.window = window
         self.feature_dim = feature_dim
-        self.dir = './output/ground_truth'
+        self.dir = './output'
         os.makedirs(self.dir, exist_ok=True)
         self.data = self.generate_synthetic_ts(n_samples, 
                                                window,
@@ -186,3 +186,15 @@ class SyntheticDataset(Dataset):
     def __getitem__(self, idx):
         return self.data[idx]
     
+    
+class FromNumpyDataset(Dataset):
+    def __init__(self, 
+                 path
+                 ):
+        self.data = np.load(path)
+    
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        return self.data[idx]

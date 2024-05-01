@@ -8,18 +8,22 @@ class Transformer(nn.Module):
                  n_feat,
                  n_embd,
                  n_heads,
-                 mlp_hidden_times):
+                 mlp_hidden_times,
+                 n_layer_enc,
+                 n_layer_dec
+                 ):
         super().__init__()
         self.embedding = Conv_MLP(n_feat, n_embd)
         self.inverse = Conv_MLP(n_embd, n_feat)
         self.encoder = Encoder(n_embd=n_embd, 
                                n_heads=n_heads, 
-                               mlp_hidden_times=mlp_hidden_times)
-        self.decoder = Decoder(n_feat=n_feat, 
-                               n_embd=n_embd, 
+                               mlp_hidden_times=mlp_hidden_times,
+                               n_layer=n_layer_enc)
+        self.decoder = Decoder(n_embd=n_embd, 
                                n_heads=n_heads, 
                                mlp_hidden_times=mlp_hidden_times,
-                               condition_dim=n_embd)
+                               condition_dim=n_embd,
+                               n_layer=n_layer_dec)
 
     def forward(self, input):
         # encoding
@@ -37,6 +41,26 @@ class Encoder(nn.Module):
     def __init__(self,
                  n_embd,
                  n_heads,
+                 mlp_hidden_times,
+                 n_layer
+                 ):
+        super().__init__()
+        self.blocks = nn.Sequential(*[EncoderBlock(n_embd=n_embd,
+                                                   n_heads=n_heads,
+                                                   mlp_hidden_times=mlp_hidden_times
+                                                   ) for _ in range(n_layer)])
+        
+    def forward(self, x_emb):
+        for block_idx in range(len(self.blocks)):
+            x_emb = self.blocks[block_idx](x_emb)
+        
+        return x_emb
+  
+
+class EncoderBlock(nn.Module):
+    def __init__(self,
+                 n_embd,
+                 n_heads,
                  mlp_hidden_times):
         super().__init__()
         self.hidden_dim = mlp_hidden_times * n_embd
@@ -48,18 +72,39 @@ class Encoder(nn.Module):
             nn.GELU(),
             nn.Linear(self.hidden_dim, n_embd),
             )
-        
+
     def forward(self, x_emb):
         a, _ = self.attn(self.ln(x_emb))
         x_emb = x_emb + a
         x_emb = x_emb + self.mlp(self.ln(x_emb))
         
         return x_emb
-  
+
     
 class Decoder(nn.Module):
     def __init__(self,
-                 n_feat,
+                 n_embd,
+                 n_heads,
+                 mlp_hidden_times,
+                 condition_dim,
+                 n_layer,
+                 ):
+        super().__init__()
+        self.blocks = nn.Sequential(*[DecoderBlock(n_embd=n_embd,
+                                                   n_heads=n_heads,
+                                                   mlp_hidden_times=mlp_hidden_times,
+                                                   condition_dim=condition_dim) 
+                                      for _ in range(n_layer)])
+
+    def forward(self, x_emb, encoder_output):
+        for block_idx in range(len(self.blocks)):
+            x_emb = self.blocks[block_idx](x_emb, encoder_output)
+        
+        return x_emb
+
+
+class DecoderBlock(nn.Module):
+    def __init__(self,
                  n_embd,
                  n_heads,
                  mlp_hidden_times,
@@ -71,13 +116,11 @@ class Decoder(nn.Module):
                                        n_heads=n_heads,)
         self.cross_attn = CrossAttention(n_embd=n_embd,
                                          condition_embd=condition_dim,
-                                         n_heads=n_heads,)
+                                         n_heads=n_heads)
         self.mlp = nn.Sequential(
             nn.Linear(n_embd, self.hidden_dim),
             nn.GELU(),
-            nn.Linear(self.hidden_dim, n_embd),
-        )
-        self.linear = nn.Linear(n_embd, n_feat)
+            nn.Linear(self.hidden_dim, n_embd))
 
     def forward(self, x_emb, encoder_output):
         a, _ = self.full_attn(self.ln(x_emb))
@@ -87,8 +130,8 @@ class Decoder(nn.Module):
         x_emb = x_emb + self.mlp(self.ln(x_emb))
 
         return x_emb
-    
-
+ 
+ 
 class FullAttention(nn.Module):
     def __init__(self,
                  n_embd,

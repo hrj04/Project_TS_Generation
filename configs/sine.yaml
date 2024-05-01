@@ -3,11 +3,14 @@ model:
   params:
     seq_length: 24
     n_feat: 5
-    n_embd: 128
+    n_embd: 64
     timesteps: 500
     loss_type: 'l1'
+    beta_sch : "cosine"
     n_heads: 8
-    mlp_hidden_times: 8
+    mlp_hidden_times: 4
+    n_layer_enc : 2
+    n_layer_dec : 4
 
 solver:
   base_lr: 1.0e-5
@@ -36,6 +39,8 @@ dataloader:
       save_ground_truth: True
       seed: 2024
       period: train
+    shuffle: True
+
 
   test_dataset:
     target: data.datasets.SineDataset
@@ -46,10 +51,7 @@ dataloader:
       save_ground_truth: True
       seed: 2024
       period: test
-    coefficient: 1.0e-2
-    step_size: 5.0e-2
-    sampling_steps: 200
-
+    shuffle: True
   batch_size: 128
   sample_size: 256
   shuffle: True
