@@ -9,8 +9,9 @@ model:
     beta_sch : "cosine"
     n_heads: 4
     mlp_hidden_times: 4
-    n_layer_enc : 1
-    n_layer_dec : 4
+    n_layer_enc : 2
+    n_layer_dec : 2
+    use_ff : True
 
 solver:
   base_lr: 1.0e-5

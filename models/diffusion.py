@@ -20,7 +20,8 @@ class Diffusion_TS(nn.Module):
             n_heads,
             mlp_hidden_times,
             n_layer_enc,
-            n_layer_dec
+            n_layer_dec,
+            use_ff
     ):
         super().__init__()
         self.transformer = Transformer(n_feat=n_feat,
@@ -35,6 +36,7 @@ class Diffusion_TS(nn.Module):
         self.seq_length = seq_length
         self.n_feat = n_feat
         self.ff_weight = math.sqrt(self.seq_length) / 5
+        self.use_ff = use_ff
 
         # To enhance computing performance
         register_buffer = lambda name, val: self.register_buffer(name, val.to(torch.float32))
@@ -71,31 +73,23 @@ class Diffusion_TS(nn.Module):
         train_loss = self.loss_fn(x_0_pred, x_0, reduction='none')
         
         # fourier_loss
-        fourier_loss = torch.tensor([0.])
-        fft1 = torch.fft.fft(x_0_pred.transpose(1, 2), norm='forward')
-        fft2 = torch.fft.fft(x_0.transpose(1, 2), norm='forward')
-        fft1, fft2 = fft1.transpose(1, 2), fft2.transpose(1, 2)
-        fourier_real = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')
-        fourier_img = self.loss_fn(torch.imag(fft1), torch.imag(fft2), reduction='none')
-        fourier_loss = fourier_real + fourier_img
-        
-        # combine loss function
-        train_loss +=  self.ff_weight * fourier_loss
-        train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')
+        if self.use_ff:
+            fourier_loss = torch.tensor([0.])
+            fft1 = torch.fft.fft(x_0_pred.transpose(1, 2), norm='forward')
+            fft2 = torch.fft.fft(x_0.transpose(1, 2), norm='forward')
+            fft1, fft2 = fft1.transpose(1, 2), fft2.transpose(1, 2)
+            fourier_real = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')
+            fourier_img = self.loss_fn(torch.imag(fft1), torch.imag(fft2), reduction='none')
+            fourier_loss = fourier_real + fourier_img
+            
+            # combine loss function
+            train_loss +=  self.ff_weight * fourier_loss
+            train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')
         
         train_loss = train_loss * extract(self.loss_weight, t, train_loss.shape)
         
         return train_loss.mean()
 
-    def tmp(self, x_0, t):
-        noise = torch.randn_like(x_0)
-        x_t = self._forward_process(x_0=x_0, t=t, noise=noise)
-        x_0_pred = self.transformer(x_t)
-        train_loss = self.loss_fn(x_0_pred, x_0, reduction='none')
-        
-        return x_t, x_0_pred, train_loss
-
-        
     def _forward_process(self, x_0, t, noise):
         coef1 = extract(self.sqrt_alphas_cumprod, t, x_0.shape)
         coef2 = extract(self.sqrt_one_minus_alphas_cumprod, t, x_0.shape)

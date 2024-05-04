@@ -24,7 +24,8 @@ class Transformer(nn.Module):
                                n_heads=n_heads, 
                                mlp_hidden_times=mlp_hidden_times,
                                n_layer=n_layer_enc)
-        self.decoder = Decoder(n_embd=n_embd, 
+        self.decoder = Decoder(n_embd=n_embd,
+                               seq_len=seq_len,
                                n_heads=n_heads, 
                                mlp_hidden_times=mlp_hidden_times,
                                condition_dim=n_embd,
@@ -106,6 +107,7 @@ class EncoderBlock(nn.Module):
 class Decoder(nn.Module):
     def __init__(self,
                  n_embd,
+                 seq_len,
                  n_heads,
                  mlp_hidden_times,
                  condition_dim,
@@ -113,6 +115,7 @@ class Decoder(nn.Module):
                  ):
         super().__init__()
         self.blocks = nn.Sequential(*[DecoderBlock(n_embd=n_embd,
+                                                   seq_len=seq_len,
                                                    n_heads=n_heads,
                                                    mlp_hidden_times=mlp_hidden_times,
                                                    condition_dim=condition_dim) 
@@ -127,6 +130,7 @@ class Decoder(nn.Module):
 
 class DecoderBlock(nn.Module):
     def __init__(self,
+                 seq_len,
                  n_embd,
                  n_heads,
                  mlp_hidden_times,
@@ -143,6 +147,10 @@ class DecoderBlock(nn.Module):
             nn.Linear(n_embd, self.hidden_dim),
             nn.GELU(),
             nn.Linear(self.hidden_dim, n_embd))
+        
+        self.proj = nn.Conv1d(in_channels=seq_len, 
+                              out_channels=seq_len * 2, 
+                              kernel_size=1)
 
     def forward(self, x_emb, encoder_output):
         a, _ = self.full_attn(self.ln(x_emb))
@@ -248,4 +256,36 @@ class Conv_MLP(nn.Module):
 
     def forward(self, x):
         return self.sequential(x).transpose(1, 2)
+
+
+class TrendBlock(nn.Module):
+    def __init__(self, 
+                 in_dim, 
+                 out_dim, 
+                 in_feat, 
+                 out_feat):
+        super().__init__()
+        trend_poly = 3
+        self.trend = nn.Sequential(
+            nn.Conv1d(in_channels=in_dim, 
+                      out_channels=trend_poly, 
+                      kernel_size=3, 
+                      padding=1),
+            nn.GELU(),
+            Transpose(shape=(1, 2)),
+            nn.Conv1d(in_channels=in_feat, 
+                      out_channels=out_feat, 
+                      kernel_size=3, 
+                      padding=1)
+        )
+        lin_space = torch.arange(1, out_dim + 1, 1) / (out_dim + 1)
+        self.poly_space = torch.stack([lin_space ** float(p + 1) for p in range(trend_poly)], dim=0)
+
+    def forward(self, input):
+        b, c, h = input.shape
+        x = self.trend(input).transpose(1, 2)
+        trend_vals = torch.matmul(x.transpose(1, 2), self.poly_space.to(x.device))
+        trend_vals = trend_vals.transpose(1, 2)
+        return trend_vals
+
 
