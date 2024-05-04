@@ -3,17 +3,17 @@ model:
   params:
     seq_length: 24
     n_feat: 5
-    n_embd: 128
+    n_embd: 64
     timesteps: 500
     loss_type: 'l1'
-    beta_sch : "linear"
-    n_heads: 8
-    mlp_hidden_times: 8
-    n_layer_enc : 2
+    beta_sch : "cosine"
+    n_heads: 4
+    mlp_hidden_times: 4
+    n_layer_enc : 1
     n_layer_dec : 4
 solver:
   base_lr: 1.0e-5
-  train_epochs: 15000
+  train_epochs: 10000
   results_folder: ./check_points/stock
   
   scheduler:

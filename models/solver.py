@@ -42,22 +42,5 @@ class Trainer(object):
 
                 pbar.update(1)
                 
-    def adv_train(self):
-        curr_epoch = 0
-        with tqdm(initial=curr_epoch, total=self.train_epochs) as pbar:
-            while curr_epoch < self.train_epochs:
-                data = next(self.dl).to(self.device)
-                loss = self.model(data)
-                loss.backward()
-                loss = loss.item()
-                pbar.set_description(f'loss: {loss:.6f}')
-                
-                self.opt.step()
-                self.sch.step(loss)
-                self.opt.zero_grad()
-                curr_epoch += 1
-
-                pbar.update(1)
-
         
         

@@ -1,4 +1,5 @@
 import math
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -6,6 +7,7 @@ import torch.nn.functional as F
 class Transformer(nn.Module):
     def __init__(self,
                  n_feat,
+                 seq_len,
                  n_embd,
                  n_heads,
                  mlp_hidden_times,
@@ -13,6 +15,9 @@ class Transformer(nn.Module):
                  n_layer_dec
                  ):
         super().__init__()
+        self.pe_encoder = LearnablePositionalEncoding(embd_dim=n_embd,seq_len=seq_len,dropout=0.1)
+        self.pe_decoder = LearnablePositionalEncoding(embd_dim=n_embd,seq_len=seq_len,dropout=0.1)
+        
         self.embedding = Conv_MLP(n_feat, n_embd)
         self.inverse = Conv_MLP(n_embd, n_feat)
         self.encoder = Encoder(n_embd=n_embd, 
@@ -28,14 +33,31 @@ class Transformer(nn.Module):
     def forward(self, input):
         # encoding
         embedding = self.embedding(input)
-        enc_cond = self.encoder(embedding)
+        inp_enc = self.pe_encoder(embedding)
+        enc_cond = self.encoder(inp_enc)
 
         # decoding
-        output = self.decoder(embedding, enc_cond)
+        inp_dec = self.pe_decoder(embedding)
+        output = self.decoder(inp_dec, enc_cond)
         out = self.inverse(output)
         
         return out
 
+
+class LearnablePositionalEncoding(nn.Module):
+    def __init__(self, 
+                 embd_dim, 
+                 seq_len,
+                 dropout):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        self.positional_encoder = nn.Parameter(torch.empty(1, seq_len, embd_dim))
+        nn.init.uniform_(self.positional_encoder, -0.02, 0.02)
+
+    def forward(self, x):
+        x = x + self.positional_encoder
+        
+        return self.dropout(x)
 
 class Encoder(nn.Module):
     def __init__(self,
@@ -113,7 +135,7 @@ class DecoderBlock(nn.Module):
         self.hidden_dim = mlp_hidden_times * n_embd
         self.ln = nn.LayerNorm(n_embd)
         self.full_attn = FullAttention(n_embd=n_embd,
-                                       n_heads=n_heads,)
+                                       n_heads=n_heads)
         self.cross_attn = CrossAttention(n_embd=n_embd,
                                          condition_embd=condition_dim,
                                          n_heads=n_heads)

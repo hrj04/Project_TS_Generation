@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import math
+from einops import reduce
 from tqdm.auto import tqdm
 from models.transformer import Transformer
 from utils.utils import extract, cosine_beta_schedule, linear_beta_schedule
@@ -22,7 +23,8 @@ class Diffusion_TS(nn.Module):
             n_layer_dec
     ):
         super().__init__()
-        self.transformer = Transformer(n_feat=n_feat, 
+        self.transformer = Transformer(n_feat=n_feat,
+                                       seq_len=seq_length, 
                                        n_embd=n_embd,
                                        n_heads=n_heads, 
                                        mlp_hidden_times=mlp_hidden_times,
@@ -32,6 +34,7 @@ class Diffusion_TS(nn.Module):
         self.loss_fn = F.l1_loss if loss_type == "l1" else F.l2_loss
         self.seq_length = seq_length
         self.n_feat = n_feat
+        self.ff_weight = math.sqrt(self.seq_length) / 5
 
         # To enhance computing performance
         register_buffer = lambda name, val: self.register_buffer(name, val.to(torch.float32))
@@ -50,6 +53,8 @@ class Diffusion_TS(nn.Module):
         register_buffer('posterior_mean_coef1', self.betas * torch.sqrt(self.alphas_cumprod_prev) / (1. - self.alphas_cumprod))
         register_buffer('posterior_mean_coef2', (1. - self.alphas_cumprod_prev) * torch.sqrt(self.alphas) / (1. - self.alphas_cumprod))
 
+        register_buffer('loss_weight', torch.sqrt(self.alphas) * torch.sqrt(1. - self.alphas_cumprod) / self.betas / 100)
+
     def forward(self, x_0):
         batch, device = x_0.shape[0], x_0.device
         t = torch.randint(0, self.timesteps, (batch,), device=device).long()
@@ -57,13 +62,40 @@ class Diffusion_TS(nn.Module):
         return self._train_loss(x_0=x_0, t=t)
 
     def _train_loss(self, x_0, t):
+        
         noise = torch.randn_like(x_0)
         x_t = self._forward_process(x_0=x_0, t=t, noise=noise)
         x_0_pred = self.transformer(x_t)
-        train_loss = self.loss_fn(x_0_pred, x_0, reduction='mean')
         
-        return train_loss
+        # l1 loss
+        train_loss = self.loss_fn(x_0_pred, x_0, reduction='none')
+        
+        # fourier_loss
+        fourier_loss = torch.tensor([0.])
+        fft1 = torch.fft.fft(x_0_pred.transpose(1, 2), norm='forward')
+        fft2 = torch.fft.fft(x_0.transpose(1, 2), norm='forward')
+        fft1, fft2 = fft1.transpose(1, 2), fft2.transpose(1, 2)
+        fourier_real = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')
+        fourier_img = self.loss_fn(torch.imag(fft1), torch.imag(fft2), reduction='none')
+        fourier_loss = fourier_real + fourier_img
+        
+        # combine loss function
+        train_loss +=  self.ff_weight * fourier_loss
+        train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')
+        
+        train_loss = train_loss * extract(self.loss_weight, t, train_loss.shape)
+        
+        return train_loss.mean()
 
+    def tmp(self, x_0, t):
+        noise = torch.randn_like(x_0)
+        x_t = self._forward_process(x_0=x_0, t=t, noise=noise)
+        x_0_pred = self.transformer(x_t)
+        train_loss = self.loss_fn(x_0_pred, x_0, reduction='none')
+        
+        return x_t, x_0_pred, train_loss
+
+        
     def _forward_process(self, x_0, t, noise):
         coef1 = extract(self.sqrt_alphas_cumprod, t, x_0.shape)
         coef2 = extract(self.sqrt_one_minus_alphas_cumprod, t, x_0.shape)
@@ -113,4 +145,4 @@ class Diffusion_TS(nn.Module):
         post_log_variance = extract(self.posterior_log_variance, t, shape)
         
         return post_log_variance
-    
+
