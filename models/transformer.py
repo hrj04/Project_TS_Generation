@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from einops import reduce, rearrange, repeat
+
 
 class Transformer(nn.Module):
     def __init__(self,
@@ -17,7 +19,16 @@ class Transformer(nn.Module):
         super().__init__()
         self.pe_encoder = LearnablePositionalEncoding(embd_dim=n_embd,seq_len=seq_len,dropout=0.1)
         self.pe_decoder = LearnablePositionalEncoding(embd_dim=n_embd,seq_len=seq_len,dropout=0.1)
-        
+        self.combine_m = nn.Conv1d(in_channels=n_layer_dec, 
+                                   out_channels=1, 
+                                   kernel_size=1, 
+                                   padding_mode='circular', 
+                                   bias=False)
+        self.combine_s = nn.Conv1d(in_channels=n_embd,
+                                   out_channels=n_feat,
+                                   kernel_size=1, 
+                                   padding_mode='circular', 
+                                   bias=False)
         self.embedding = Conv_MLP(n_feat, n_embd)
         self.inverse = Conv_MLP(n_embd, n_feat)
         self.encoder = Encoder(n_embd=n_embd, 
@@ -25,6 +36,7 @@ class Transformer(nn.Module):
                                mlp_hidden_times=mlp_hidden_times,
                                n_layer=n_layer_enc)
         self.decoder = Decoder(n_embd=n_embd,
+                               n_feat=n_feat,
                                seq_len=seq_len,
                                n_heads=n_heads, 
                                mlp_hidden_times=mlp_hidden_times,
@@ -39,10 +51,14 @@ class Transformer(nn.Module):
 
         # decoding
         inp_dec = self.pe_decoder(embedding)
-        output = self.decoder(inp_dec, enc_cond)
-        out = self.inverse(output)
+        output, mean, trend, season = self.decoder(inp_dec, enc_cond)
         
-        return out
+        res = self.inverse(output)
+        res_m = torch.mean(res, dim=1, keepdim=True)
+        season_error = self.combine_s(season.transpose(1,2)).transpose(1,2) + res - res_m
+        trend = self.combine_m(mean) + res_m + trend
+        
+        return trend, season_error
 
 
 class LearnablePositionalEncoding(nn.Module):
@@ -59,6 +75,7 @@ class LearnablePositionalEncoding(nn.Module):
         x = x + self.positional_encoder
         
         return self.dropout(x)
+
 
 class Encoder(nn.Module):
     def __init__(self,
@@ -107,6 +124,7 @@ class EncoderBlock(nn.Module):
 class Decoder(nn.Module):
     def __init__(self,
                  n_embd,
+                 n_feat,
                  seq_len,
                  n_heads,
                  mlp_hidden_times,
@@ -114,7 +132,10 @@ class Decoder(nn.Module):
                  n_layer,
                  ):
         super().__init__()
+        self.n_embd = n_embd
+        self.n_feat = n_feat
         self.blocks = nn.Sequential(*[DecoderBlock(n_embd=n_embd,
+                                                   n_feat=n_feat,
                                                    seq_len=seq_len,
                                                    n_heads=n_heads,
                                                    mlp_hidden_times=mlp_hidden_times,
@@ -122,22 +143,32 @@ class Decoder(nn.Module):
                                       for _ in range(n_layer)])
 
     def forward(self, x_emb, encoder_output):
+        b, c, _ = x_emb.shape
+        mean = []
+        season = torch.zeros((b, c, self.n_embd), device=x_emb.device)
+        trend = torch.zeros((b, c, self.n_feat), device=x_emb.device)
         for block_idx in range(len(self.blocks)):
-            x_emb = self.blocks[block_idx](x_emb, encoder_output)
+            x_emb, residual_mean, residual_trend, residual_season = self.blocks[block_idx](x_emb, encoder_output)
+            trend += residual_trend
+            season += residual_season
+            mean.append(residual_mean)
+
+        mean = torch.cat(mean, dim=1)
         
-        return x_emb
+        return x_emb, mean, trend, season
 
 
 class DecoderBlock(nn.Module):
     def __init__(self,
                  seq_len,
+                 n_feat,
                  n_embd,
                  n_heads,
                  mlp_hidden_times,
                  condition_dim):
         super().__init__()
         self.hidden_dim = mlp_hidden_times * n_embd
-        self.ln = nn.LayerNorm(n_embd)
+        self.layernorm = nn.LayerNorm(n_embd)
         self.full_attn = FullAttention(n_embd=n_embd,
                                        n_heads=n_heads)
         self.cross_attn = CrossAttention(n_embd=n_embd,
@@ -148,18 +179,31 @@ class DecoderBlock(nn.Module):
             nn.GELU(),
             nn.Linear(self.hidden_dim, n_embd))
         
+        self.trend = TrendBlock(in_dim=seq_len, 
+                                out_dim=seq_len,
+                                in_feat=n_embd,
+                                out_feat=n_feat)
+        self.seasonal = FourierLayer(n_embd=n_embd)
         self.proj = nn.Conv1d(in_channels=seq_len, 
                               out_channels=seq_len * 2, 
                               kernel_size=1)
-
+        self.linear = nn.Linear(in_features=n_embd,
+                                out_features=n_feat)
+        
     def forward(self, x_emb, encoder_output):
-        a, _ = self.full_attn(self.ln(x_emb))
+        a, _ = self.full_attn(self.layernorm(x_emb))
         x_emb = x_emb + a
-        a, _ = self.cross_attn(self.ln(x_emb), encoder_output)
+        a, _ = self.cross_attn(self.layernorm(x_emb), encoder_output)
         x_emb = x_emb + a
-        x_emb = x_emb + self.mlp(self.ln(x_emb))
+        x_emb = x_emb + self.mlp(self.layernorm(x_emb))
+        
+        # decomposition
+        x1, x2 = self.proj(x_emb).chunk(2, dim=1)
+        trend, season = self.trend(x1), self.seasonal(x2)
+        x_emb = x_emb + self.mlp(self.layernorm(x_emb))
+        m = torch.mean(x_emb, dim=1, keepdim=True)
 
-        return x_emb
+        return x_emb - m, self.linear(m), trend, season
  
  
 class FullAttention(nn.Module):
@@ -282,10 +326,64 @@ class TrendBlock(nn.Module):
         self.poly_space = torch.stack([lin_space ** float(p + 1) for p in range(trend_poly)], dim=0)
 
     def forward(self, input):
-        b, c, h = input.shape
-        x = self.trend(input).transpose(1, 2)
-        trend_vals = torch.matmul(x.transpose(1, 2), self.poly_space.to(x.device))
+        x = self.trend(input)
+        trend_vals = torch.matmul(x, self.poly_space.to(x.device))
         trend_vals = trend_vals.transpose(1, 2)
+        
         return trend_vals
 
+
+class FourierLayer(nn.Module):
+    """
+    Model seasonality of time series using the inverse DFT.
+    """
+    def __init__(self, 
+                 n_embd, 
+                 low_freq=1, 
+                 factor=1):
+        super().__init__()
+        self.n_embd = n_embd
+        self.factor = factor
+        self.low_freq = low_freq
+
+    def forward(self, x):
+        """x: (b, t, d)"""
+        b, t, d = x.shape
+        x_freq = torch.fft.rfft(x, dim=1)
+
+        if t % 2 == 0:
+            x_freq = x_freq[:, self.low_freq:-1]
+            f = torch.fft.rfftfreq(t)[self.low_freq:-1]
+        else:
+            x_freq = x_freq[:, self.low_freq:]
+            f = torch.fft.rfftfreq(t)[self.low_freq:]
+
+        x_freq, index_tuple = self.topk_freq(x_freq)
+        f = repeat(f, 'f -> b f d', b=x_freq.size(0), d=x_freq.size(2)).to(x_freq.device)
+        f = rearrange(f[index_tuple], 'b f d -> b f () d').to(x_freq.device)
+        
+        return self.extrapolate(x_freq, f, t)
+
+    def extrapolate(self, x_freq, f, t):
+        x_freq = torch.cat([x_freq, x_freq.conj()], dim=1)
+        f = torch.cat([f, -f], dim=1)
+        t = rearrange(torch.arange(t, dtype=torch.float),
+                      't -> () () t ()').to(x_freq.device)
+
+        amp = rearrange(x_freq.abs(), 'b f d -> b f () d')
+        phase = rearrange(x_freq.angle(), 'b f d -> b f () d')
+        x_time = amp * torch.cos(2 * math.pi * f * t + phase)
+        
+        return reduce(x_time, 'b f t d -> b t d', 'sum')
+
+    def topk_freq(self, x_freq):
+        length = x_freq.shape[1]
+        top_k = int(self.factor * math.log(length))
+        values, indices = torch.topk(x_freq.abs(), top_k, dim=1, largest=True, sorted=True)
+        mesh_a, mesh_b = torch.meshgrid(torch.arange(x_freq.size(0)), torch.arange(x_freq.size(2)), indexing='ij')
+        index_tuple = (mesh_a.unsqueeze(1), indices, mesh_b.unsqueeze(1))
+        x_freq = x_freq[index_tuple]
+        
+        return x_freq, index_tuple
+    
 
