@@ -67,29 +67,38 @@ class StockDataset(Dataset):
                  ):
         
         raw_df = fdr.DataReader(symbol, sdate, edate)
-        self.data = self.generate_stock_sample(raw_df, window)
+        self.data, self.target = self.generate_stock_sample(raw_df, window)
         self.window = window
         self.feature_dim = self.data.shape[-1]
         self.dir = './output'
         os.makedirs(self.dir, exist_ok=True)
 
         if normalize:
-            self.data, self.mean, self.std = self._mean_std_scale(self.data)
+            self.data, self.target, self.mean, self.std = self._mean_std_scale(self.data, self.target)
             
         if save_ground_truth:
             np.save(os.path.join(self.dir, f"stock_ground_truth_data_{window}_{period}.npy"), self.data)
+            np.save(os.path.join(self.dir, f"stock_ground_truth_target_{window}_{period}.npy"), self.target)
             np.save(os.path.join(self.dir, f"stock_ground_truth_mean_{window}_{period}.npy"), self.mean)
             np.save(os.path.join(self.dir, f"stock_ground_truth_std_{window}_{period}.npy"), self.std)
 
-    def generate_stock_sample(self, df, window) -> Tensor:
+    def generate_stock_sample(self, df, window):
         raw_data = torch.from_numpy(df.to_numpy()).float()
         data = self._extract_sliding_windows(raw_data, window)
+        target = self._extract_target(raw_data, window)
+        
+        return data, target
     
-        return data
+    def _extract_target(self, raw_data, window):
+        sample_n = len(raw_data)-window
+        target = raw_data[-sample_n:].view(sample_n, 1, -1)
+        
+        return target
     
-    def _extract_sliding_windows(self, raw_data, window) -> Tensor:
-        sample_n = len(raw_data)-window+1
-        data = torch.zeros(sample_n, window, raw_data.shape[-1])
+    def _extract_sliding_windows(self, raw_data, window):
+        sample_n = len(raw_data)-window
+        n_feature = raw_data.shape[-1]
+        data = torch.zeros(sample_n, window, n_feature)
         for i in range(sample_n):
             start = i
             end = i + window    
@@ -97,12 +106,13 @@ class StockDataset(Dataset):
             
         return data
 
-    def _mean_std_scale(self, data):
+    def _mean_std_scale(self, data, target):
         std = data.std(dim=1, keepdim=True)
         mean = data.mean(dim=1, keepdim=True)
         scaled_data = (data-mean)/std
+        scaled_target = (target-mean)/std
         
-        return scaled_data, mean, std
+        return scaled_data, scaled_target, mean, std
     
     def _inverse_mean_std_scale(scaled_data, mean, std):
         origin_data = scaled_data*std+ mean
@@ -113,7 +123,7 @@ class StockDataset(Dataset):
         return len(self.data)
     
     def __getitem__(self, idx):
-        return self.data[idx]
+        return self.data[idx], self.target[idx]
 
 
 class SyntheticDataset(Dataset):
