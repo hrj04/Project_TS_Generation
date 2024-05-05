@@ -59,7 +59,7 @@ def visualize_tsne(ori_data, fake_data, n_sample=3000, savefig=None):
 
     # TSNE Anlaysis
     concat_data = np.concatenate((ori_data, fake_data), axis=0)
-    tsne = TSNE(n_components=2, verbose=1, perplexity=40, n_iter=300)
+    tsne = TSNE(n_components=2, verbose=0, perplexity=40, n_iter=300)
     tsne_results = tsne.fit_transform(concat_data)
 
     # Plotting
@@ -89,29 +89,20 @@ def visualize_kernel(ori_data, fake_data, n_sample=3000, savefig=None):
     n_data = len(ori_data)
     n_sample = min([n_sample, n_data])
     idx = np.random.permutation(n_data)[:n_sample]
-    colors_ori, colors_fake = ["red"]*n_sample, ["blue"]*n_sample
     
-    # data preprocessing
+    # Data preprocessing
     ori_data, fake_data = ori_data[idx], fake_data[idx]
     ori_data = reduce(ori_data, "batch seq_len feature_dim -> batch seq_len", "mean")
     fake_data = reduce(fake_data, "batch seq_len feature_dim -> batch seq_len", "mean")
 
     # Visualization parameter
-    f, ax = plt.subplots(1)
-    sns.distplot(ori_data, hist=False, kde=True, kde_kws={'linewidth': 5}, label='Original', color="red")
-    sns.distplot(fake_data, hist=False, kde=True, kde_kws={'linewidth': 5, 'linestyle':'--'}, label='Synthetic', color="blue")
-    # Plot formatting
-
-    # plt.legend(prop={'size': 22})
+    plt.figure()
+    sns.kdeplot(ori_data.flatten(), linewidth=5, label='Original', color="red")
+    sns.kdeplot(fake_data.flatten(), linewidth=5, linestyle='--', label='Synthetic', color="blue")
     plt.legend()
-    plt.xlabel('Data Value')
+    plt.xlabel('Reduced Data Value')
     plt.ylabel('Data Density Estimate')
-    # plt.rcParams['pdf.fonttype'] = 42
-
-    # plt.ylim((0, 12))
-    plt.show()
     
-
     if savefig is None:
         plt.show()
     else:

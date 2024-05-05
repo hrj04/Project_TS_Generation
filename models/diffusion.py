@@ -63,8 +63,8 @@ class Diffusion_TS(nn.Module):
         
         return self._train_loss(x_0=x_0, t=t)
 
-    def predict_x_0(self, x_t):
-        trend, season = self.transformer(x_t)
+    def predict_x_0(self, x_t, t):
+        trend, season = self.transformer(x_t, t)
         x_0_hat = trend + season
         
         return x_0_hat
@@ -72,7 +72,7 @@ class Diffusion_TS(nn.Module):
     def _train_loss(self, x_0, t):
         noise = torch.randn_like(x_0)
         x_t = self._forward_process(x_0=x_0, t=t, noise=noise)
-        x_0_pred = self.predict_x_0(x_t)
+        x_0_pred = self.predict_x_0(x_t, t)
         
         # l1 loss
         train_loss = self.loss_fn(x_0_pred, x_0, reduction='none')
@@ -123,8 +123,8 @@ class Diffusion_TS(nn.Module):
     def _posterior_q(self, x_t, t: int):
         '''posterior q(x_{t-1} | x_t, x_0)'''
         batched_t = torch.full((x_t.shape[0],), t, device=x_t.device, dtype=torch.long)
-        x_0 = self.predict_x_0(x_t)
-        x_0.clamp_(min=-1., max=1.)
+        x_0 = self.predict_x_0(x_t, t=batched_t)
+        x_0.clamp_(min=-4., max=4.)
         
         post_mean = self._post_mean(x_0=x_0, x_t=x_t, t=batched_t)
         post_log_variance = self._post_log_var(t=batched_t, shape=x_t.shape)

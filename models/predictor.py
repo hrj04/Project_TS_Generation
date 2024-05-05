@@ -20,4 +20,3 @@ class GRU(nn.Module):
         
         return out
 
-

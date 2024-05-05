@@ -43,7 +43,7 @@ class Transformer(nn.Module):
                                condition_dim=n_embd,
                                n_layer=n_layer_dec)
 
-    def forward(self, input):
+    def forward(self, input, t):
         # encoding
         embedding = self.embedding(input)
         inp_enc = self.pe_encoder(embedding)
@@ -51,30 +51,13 @@ class Transformer(nn.Module):
 
         # decoding
         inp_dec = self.pe_decoder(embedding)
-        output, mean, trend, season = self.decoder(inp_dec, enc_cond)
-        
+        output, mean, trend, season = self.decoder(inp_dec, t, enc_cond)
         res = self.inverse(output)
         res_m = torch.mean(res, dim=1, keepdim=True)
         season_error = self.combine_s(season.transpose(1,2)).transpose(1,2) + res - res_m
         trend = self.combine_m(mean) + res_m + trend
         
         return trend, season_error
-
-
-class LearnablePositionalEncoding(nn.Module):
-    def __init__(self, 
-                 embd_dim, 
-                 seq_len,
-                 dropout):
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        self.positional_encoder = nn.Parameter(torch.empty(1, seq_len, embd_dim))
-        nn.init.uniform_(self.positional_encoder, -0.02, 0.02)
-
-    def forward(self, x):
-        x = x + self.positional_encoder
-        
-        return self.dropout(x)
 
 
 class Encoder(nn.Module):
@@ -142,13 +125,13 @@ class Decoder(nn.Module):
                                                    condition_dim=condition_dim) 
                                       for _ in range(n_layer)])
 
-    def forward(self, x_emb, encoder_output):
+    def forward(self, x_emb, t, encoder_output):
         b, c, _ = x_emb.shape
         mean = []
         season = torch.zeros((b, c, self.n_embd), device=x_emb.device)
         trend = torch.zeros((b, c, self.n_feat), device=x_emb.device)
         for block_idx in range(len(self.blocks)):
-            x_emb, residual_mean, residual_trend, residual_season = self.blocks[block_idx](x_emb, encoder_output)
+            x_emb, residual_mean, residual_trend, residual_season = self.blocks[block_idx](x_emb, t, encoder_output)
             trend += residual_trend
             season += residual_season
             mean.append(residual_mean)
@@ -169,6 +152,8 @@ class DecoderBlock(nn.Module):
         super().__init__()
         self.hidden_dim = mlp_hidden_times * n_embd
         self.layernorm = nn.LayerNorm(n_embd)
+        self.adalayernorm1 = AdaLayerNorm(n_embd)
+        self.adalayernorm2 = AdaLayerNorm(n_embd)
         self.full_attn = FullAttention(n_embd=n_embd,
                                        n_heads=n_heads)
         self.cross_attn = CrossAttention(n_embd=n_embd,
@@ -190,12 +175,11 @@ class DecoderBlock(nn.Module):
         self.linear = nn.Linear(in_features=n_embd,
                                 out_features=n_feat)
         
-    def forward(self, x_emb, encoder_output):
-        a, _ = self.full_attn(self.layernorm(x_emb))
+    def forward(self, x_emb, t, encoder_output):
+        a, _ = self.full_attn(self.adalayernorm1(x_emb, t))
         x_emb = x_emb + a
-        a, _ = self.cross_attn(self.layernorm(x_emb), encoder_output)
+        a, _ = self.cross_attn(self.adalayernorm2(x_emb, t), encoder_output)
         x_emb = x_emb + a
-        x_emb = x_emb + self.mlp(self.layernorm(x_emb))
         
         # decomposition
         x1, x2 = self.proj(x_emb).chunk(2, dim=1)
@@ -278,28 +262,6 @@ class CrossAttention(nn.Module):
         y = self.proj(y)
         
         return y, att
-
-
-class Transpose(nn.Module):
-    """ Wrapper class of torch.transpose() for Sequential module"""
-    def __init__(self, shape: tuple):
-        super().__init__()
-        self.shape = shape
-
-    def forward(self, x):
-        return x.transpose(*self.shape)
-
-
-class Conv_MLP(nn.Module):
-    def __init__(self, in_dim, out_dim):
-        super().__init__()
-        self.sequential = nn.Sequential(
-            Transpose(shape=(1, 2)),
-            nn.Conv1d(in_dim, out_dim, kernel_size=3, stride=1, padding=1),
-        )
-
-    def forward(self, x):
-        return self.sequential(x).transpose(1, 2)
 
 
 class TrendBlock(nn.Module):
@@ -385,5 +347,74 @@ class FourierLayer(nn.Module):
         x_freq = x_freq[index_tuple]
         
         return x_freq, index_tuple
-    
+  
 
+class LearnablePositionalEncoding(nn.Module):
+    def __init__(self, 
+                 embd_dim, 
+                 seq_len,
+                 dropout):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        self.positional_encoder = nn.Parameter(torch.empty(1, seq_len, embd_dim))
+        nn.init.uniform_(self.positional_encoder, -0.02, 0.02)
+
+    def forward(self, x):
+        x = x + self.positional_encoder
+        
+        return self.dropout(x)
+
+
+class SinusoidalPosEmb(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, x):
+        device = x.device
+        half_dim = self.dim // 2
+        emb = math.log(10000) / (half_dim - 1)
+        emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
+        emb = x[:, None] * emb[None, :]
+        emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
+        
+        return emb
+  
+    
+class AdaLayerNorm(nn.Module):
+    def __init__(self, n_embd):
+        super().__init__()
+        self.emb = SinusoidalPosEmb(n_embd)
+        self.silu = nn.SiLU()
+        self.linear = nn.Linear(n_embd, n_embd*2)
+        self.layernorm = nn.LayerNorm(n_embd, elementwise_affine=False)
+
+    def forward(self, x, timestep):
+        emb = self.emb(timestep)
+        emb = self.linear(self.silu(emb)).unsqueeze(1)
+        scale, shift = torch.chunk(emb, 2, dim=2)
+        x = self.layernorm(x) * (1 + scale) + shift
+        
+        return x
+
+
+class Transpose(nn.Module):
+    """ Wrapper class of torch.transpose() for Sequential module"""
+    def __init__(self, shape: tuple):
+        super().__init__()
+        self.shape = shape
+
+    def forward(self, x):
+        return x.transpose(*self.shape)
+
+
+class Conv_MLP(nn.Module):
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.sequential = nn.Sequential(
+            Transpose(shape=(1, 2)),
+            nn.Conv1d(in_dim, out_dim, kernel_size=3, stride=1, padding=1),
+        )
+
+    def forward(self, x):
+        return self.sequential(x).transpose(1, 2)

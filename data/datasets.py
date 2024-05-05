@@ -72,11 +72,13 @@ class StockDataset(Dataset):
         self.feature_dim = self.data.shape[-1]
         self.dir = './output'
         os.makedirs(self.dir, exist_ok=True)
+
+        # if normalize:
+        #     self.data, self.min_val, self.max_val = self._min_max_scale(self.data)
         
-        self.normalize = normalize
-        if self.normalize:
-            self.data, self.min_val, self.max_val = self._min_max_scale(self.data)
-        
+        if normalize:
+            self.data, self.mean, self.std = self._mean_std_scale(self.data)
+            
         if save_ground_truth:
             np.save(os.path.join(self.dir, f"stock_ground_truth_{window}_{period}.npy"), self.data)
             
@@ -95,6 +97,18 @@ class StockDataset(Dataset):
             data[i, :, :] = raw_data[start:end]
             
         return data
+
+    def _mean_std_scale(self, data):
+        std = data.std(dim=1, keepdim=True)
+        mean = data.mean(dim=1, keepdim=True)
+        scaled_data = (data-mean)/std
+        
+        return scaled_data, mean, std
+    
+    def _inverse_mean_std_scale(scaled_data, mean, std):
+        origin_data = scaled_data*std+ mean
+
+        return origin_data
 
     def _min_max_scale(self, data : Tensor):
         min_val = data.min(dim=1, keepdim=True)[0]
@@ -198,3 +212,14 @@ class FromNumpyDataset(Dataset):
     
     def __getitem__(self, idx):
         return self.data[idx]
+
+
+
+
+
+
+
+
+
+
+
