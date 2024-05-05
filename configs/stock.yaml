@@ -7,14 +7,14 @@ model:
     timesteps: 500
     loss_type: 'l1'
     beta_sch : "cosine"
-    n_heads: 4
-    mlp_hidden_times: 4
-    n_layer_enc : 2
-    n_layer_dec : 2
+    n_heads: 8
+    mlp_hidden_times: 16
+    n_layer_enc : 1
+    n_layer_dec : 8
     use_ff : True
 solver:
   base_lr: 1.0e-5
-  train_epochs: 10000
+  train_epochs: 20000
   results_folder: ./check_points/stock
   
   scheduler:
@@ -35,7 +35,7 @@ dataloader:
     params:
       symbol : 'AAPL, MSFT, NVDA, AMZN, COST'
       sdate : '20000101'
-      edate : '20181231'
+      edate : '20131231'
       window: 24 
       save_ground_truth: True
       normalize: True
@@ -46,8 +46,8 @@ dataloader:
     target: data.datasets.StockDataset
     params:
       symbol : 'AAPL, MSFT, NVDA, AMZN, COST'
-      sdate : '20190101'
-      edate : '20251231'
+      sdate : '20140101'
+      edate : '20241231'
       window: 24  
       save_ground_truth: True
       normalize: True

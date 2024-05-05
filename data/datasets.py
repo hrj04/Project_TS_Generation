@@ -73,15 +73,14 @@ class StockDataset(Dataset):
         self.dir = './output'
         os.makedirs(self.dir, exist_ok=True)
 
-        # if normalize:
-        #     self.data, self.min_val, self.max_val = self._min_max_scale(self.data)
-        
         if normalize:
             self.data, self.mean, self.std = self._mean_std_scale(self.data)
             
         if save_ground_truth:
-            np.save(os.path.join(self.dir, f"stock_ground_truth_{window}_{period}.npy"), self.data)
-            
+            np.save(os.path.join(self.dir, f"stock_ground_truth_data_{window}_{period}.npy"), self.data)
+            np.save(os.path.join(self.dir, f"stock_ground_truth_mean_{window}_{period}.npy"), self.mean)
+            np.save(os.path.join(self.dir, f"stock_ground_truth_std_{window}_{period}.npy"), self.std)
+
     def generate_stock_sample(self, df, window) -> Tensor:
         raw_data = torch.from_numpy(df.to_numpy()).float()
         data = self._extract_sliding_windows(raw_data, window)
@@ -107,20 +106,6 @@ class StockDataset(Dataset):
     
     def _inverse_mean_std_scale(scaled_data, mean, std):
         origin_data = scaled_data*std+ mean
-
-        return origin_data
-
-    def _min_max_scale(self, data : Tensor):
-        min_val = data.min(dim=1, keepdim=True)[0]
-        max_val = data.max(dim=1, keepdim=True)[0]
-        scaled_data = (data-min_val)/(max_val - min_val)
-        
-        return scaled_data, min_val, max_val
-    
-    def _inverse_min_max_scale(scaled_data : Tensor,
-                               min_val : Tensor, 
-                               max_val : Tensor):
-        origin_data = scaled_data*(max_val-min_val)+ min_val
 
         return origin_data
 
