@@ -42,5 +42,23 @@ class Trainer(object):
 
                 pbar.update(1)
                 
-        
+    def train_decomp(self):
+        curr_epoch = 0
+        with tqdm(initial=curr_epoch, total=self.train_epochs) as pbar:
+            while curr_epoch < self.train_epochs:
+                data = next(self.dl).to(self.device)
+                combined_loss, l1_loss, fourier_loss, adv_loss = self.model(data)
+                combined_loss.backward()
+                combined_loss = combined_loss.item()
+                pbar.set_description(f'combiend_loss: {combined_loss:.6f} \n \
+                                     l1_loss : {l1_loss:.6f} \n \
+                                     fourier_loss : {fourier_loss:.6f} \n \
+                                     adv_loss : {adv_loss:.6f} \n')
+                
+                self.opt.step()
+                self.sch.step(combined_loss)
+                self.opt.zero_grad()
+                curr_epoch += 1
+
+                pbar.update(1)
         
