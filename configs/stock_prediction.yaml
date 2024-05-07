@@ -14,7 +14,7 @@ model:
     use_ff : True
 solver:
   base_lr: 1.0e-5
-  train_epochs: 20000
+  train_epochs: 50000
   results_folder: ./check_points/stock
   
   scheduler:
