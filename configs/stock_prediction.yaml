@@ -1,5 +1,5 @@
 model:
-  target: models.diffusion.Diffusion_TS
+  target: models.diffusion.DiffusionTSAdversarial
   params:
     seq_length: 24
     n_feat: 5
@@ -8,9 +8,9 @@ model:
     loss_type: 'l1'
     beta_sch : "cosine"
     n_heads: 8
-    mlp_hidden_times: 16
-    n_layer_enc : 2
-    n_layer_dec : 8
+    mlp_hidden_times: 4 #16
+    n_layer_enc : 1 #2
+    n_layer_dec : 4 #8
     use_ff : True
 solver:
   base_lr: 1.0e-5

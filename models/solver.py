@@ -1,4 +1,5 @@
 import os
+import torch
 from pathlib import Path
 from tqdm.auto import tqdm
 from torch.optim import Adam
@@ -42,6 +43,9 @@ class Trainer(object):
 
                 pbar.update(1)
                 
+                if (curr_epoch+1) % 1000 == 0 :
+                    torch.save(self.model.state_dict(), Path(f"check_points/model_{curr_epoch+1}.pth"))
+                
     def train_decomp(self):
         curr_epoch = 0
         with tqdm(initial=curr_epoch, total=self.train_epochs) as pbar:
@@ -61,4 +65,18 @@ class Trainer(object):
                 curr_epoch += 1
 
                 pbar.update(1)
-        
+    
+    
+def train_prediction_model(model, dataloader, criterion, optimizer, device, epochs=100, description=""):
+    model.train()
+    with tqdm(range(epochs), total=epochs) as pbar:
+        for _ in pbar:
+            for data in dataloader:
+                x_train = data[:,:-1,:].float().to(device)
+                y_train = data[:,-1:,0].float().to(device)
+                optimizer.zero_grad()
+                outputs = model(x_train)
+                loss = criterion(outputs, y_train)
+                loss.backward()
+                optimizer.step()
+            pbar.set_description(f"{description} loss: {loss.item():.6f}")

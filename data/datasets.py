@@ -196,7 +196,6 @@ class FromNumpyDataset(Dataset):
         return self.data[idx]
 
 
-
 class PredictionStock(Dataset):
     def __init__(self,
                  symbol : str = "AAPL", 

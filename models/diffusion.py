@@ -6,6 +6,9 @@ from einops import reduce
 from tqdm.auto import tqdm
 from models.transformer import Transformer
 from utils.utils import extract, cosine_beta_schedule, linear_beta_schedule
+from models.predictor import GRU
+from torch.optim import Adam
+import gc
 
 
 class Diffusion_TS(nn.Module):
@@ -145,3 +148,50 @@ class Diffusion_TS(nn.Module):
         
         return post_log_variance
 
+
+class DiffusionTSAdversarial(Diffusion_TS):
+    def __init__(self, 
+                 seq_length, 
+                 n_feat, 
+                 n_embd, 
+                 timesteps, 
+                 loss_type, 
+                 beta_sch, 
+                 n_heads, 
+                 mlp_hidden_times, 
+                 n_layer_enc, 
+                 n_layer_dec, 
+                 use_ff):
+        super().__init__(seq_length, n_feat, n_embd, timesteps, loss_type, beta_sch, n_heads, mlp_hidden_times, n_layer_enc, n_layer_dec, use_ff)
+    
+    def generate_adversarial(self, x_0, predictor, num_timesteps=10):
+        predictor_lossfn = F.l1_loss
+        batch, device = x_0.shape[0], x_0.device
+        x_adv = x_0.clone()
+        noise = torch.randn_like(x_adv)
+        predictor.train()
+        for _ in range(num_timesteps):
+            # Forward process
+            t = torch.randint(0, self.timesteps, (batch,), device=device).long()
+            x_t = self._forward_process(x_adv, t, noise)
+            x_t.requires_grad = True
+
+            # Predict original
+            x_0_hat = self.predict_x_0(x_t, t)
+            
+            # Predict using adversarial predictor
+            pred = predictor(x_0_hat[:, :-1, :])
+            target = x_0_hat[:, -1:, 0]
+            loss = predictor_lossfn(pred, target)
+            loss.backward()
+
+            # Compute adversarial gradient
+            grad = x_t.grad.data
+            x_adv = (x_adv + 0.001 * grad.sign()).clamp(-4, 4).detach()
+            # x_adv = (x_adv + 0.0005 * grad.sign()).clamp(-4, 4).detach()
+            
+            # detach from gpu
+            torch.cuda.empty_cache()
+            gc.collect()
+
+        return x_adv
