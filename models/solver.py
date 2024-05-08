@@ -43,8 +43,9 @@ class Trainer(object):
 
                 pbar.update(1)
                 
-                if (curr_epoch+1) % 1000 == 0 :
-                    torch.save(self.model.state_dict(), Path(f"check_points/model_{curr_epoch+1}.pth"))
+                if (curr_epoch+1) % 5000 == 0 :
+                    path = os.path.join(self.results_folder, f"model_{curr_epoch+1}.pth")
+                    torch.save(self.model.state_dict(), path)
                 
     def train_decomp(self):
         curr_epoch = 0

@@ -3,19 +3,19 @@ model:
   params:
     seq_length: 24
     n_feat: 5
-    n_embd: 64
+    n_embd: 128
     timesteps: 500
     loss_type: 'l1'
     beta_sch : "cosine"
-    n_heads: 4
-    mlp_hidden_times: 4
-    n_layer_enc : 1
-    n_layer_dec : 2
+    n_heads: 8
+    mlp_hidden_times: 16
+    n_layer_enc : 2
+    n_layer_dec : 8
     use_ff : True
 
 solver:
   base_lr: 1.0e-5
-  train_epochs: 12000
+  train_epochs: 30000
   results_folder: ./check_points/sine
   
   scheduler:
@@ -23,7 +23,7 @@ solver:
     params:
       factor: 0.5
       patience: 3000
-      min_lr: 1.0e-5
+      min_lr: 5.0e-6
       threshold: 1.0e-1
       threshold_mode: rel
       warmup_lr: 8.0e-4
@@ -34,7 +34,7 @@ dataloader:
   train_dataset:
     target: data.datasets.SineDataset
     params:
-      n_samples: 10000
+      n_samples: 5000
       window: 24 
       feature_dim: 5
       save_ground_truth: True

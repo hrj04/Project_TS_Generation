@@ -106,9 +106,9 @@ class Diffusion_TS(nn.Module):
         return x_t
     
     @torch.no_grad()
-    def generate_mts(self, batch_size):
+    def generate_mts(self, n_sample):
         device = self.betas.device
-        shape = (batch_size, self.seq_length, self.n_feat)
+        shape = (n_sample, self.seq_length, self.n_feat)
         
         x_T = torch.randn(shape, device=device)
         synthetic_mts = self._reverse_process(x_T=x_T)
@@ -164,6 +164,15 @@ class DiffusionTSAdversarial(Diffusion_TS):
                  use_ff):
         super().__init__(seq_length, n_feat, n_embd, timesteps, loss_type, beta_sch, n_heads, mlp_hidden_times, n_layer_enc, n_layer_dec, use_ff)
     
+    def generate_adv(self, n_sample):
+        device = self.betas.device
+        shape = (n_sample, self.seq_length, self.n_feat)
+        x_T = torch.randn(shape, device=device)
+        synthetic_mts = self._reverse_process(x_T=x_T)
+
+        return synthetic_mts.detach().cpu().numpy()
+    
+    
     def generate_adversarial(self, x_0, predictor, num_timesteps=10):
         predictor_lossfn = F.l1_loss
         batch, device = x_0.shape[0], x_0.device
@@ -187,7 +196,8 @@ class DiffusionTSAdversarial(Diffusion_TS):
 
             # Compute adversarial gradient
             grad = x_t.grad.data
-            x_adv = (x_adv + 0.001 * grad.sign()).clamp(-4, 4).detach()
+            x_adv = (x_adv + 0.01 * grad.sign()).clamp(-4, 4).detach()
+            # x_adv = (x_adv + 0.001 * grad.sign()).clamp(-4, 4).detach()
             # x_adv = (x_adv + 0.0005 * grad.sign()).clamp(-4, 4).detach()
             
             # detach from gpu
