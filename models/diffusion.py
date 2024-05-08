@@ -9,6 +9,7 @@ from utils.utils import extract, cosine_beta_schedule, linear_beta_schedule
 from models.predictor import GRU
 from torch.optim import Adam
 import gc
+from torch.utils.data import DataLoader, TensorDataset
 
 
 class Diffusion_TS(nn.Module):
@@ -164,44 +165,44 @@ class DiffusionTSAdversarial(Diffusion_TS):
                  use_ff):
         super().__init__(seq_length, n_feat, n_embd, timesteps, loss_type, beta_sch, n_heads, mlp_hidden_times, n_layer_enc, n_layer_dec, use_ff)
     
-    def generate_adv(self, n_sample):
-        device = self.betas.device
-        shape = (n_sample, self.seq_length, self.n_feat)
-        x_T = torch.randn(shape, device=device)
-        synthetic_mts = self._reverse_process(x_T=x_T)
-
-        return synthetic_mts.detach().cpu().numpy()
-    
-    
-    def generate_adversarial(self, x_0, predictor, num_timesteps=10):
+    def generate_adversarial(self, x_0, predictor, batch_size, num_timesteps=10):
         predictor_lossfn = F.l1_loss
-        batch, device = x_0.shape[0], x_0.device
-        x_adv = x_0.clone()
-        noise = torch.randn_like(x_adv)
-        predictor.train()
-        for _ in range(num_timesteps):
-            # Forward process
-            t = torch.randint(0, self.timesteps, (batch,), device=device).long()
-            x_t = self._forward_process(x_adv, t, noise)
-            x_t.requires_grad = True
+        device = x_0.device
+        ori_adv_dl = DataLoader(x_0, batch_size=128, shuffle=True, drop_last=True)
+        x_adv_list = []
+        with tqdm(ori_adv_dl) as pbar:
+            for x_0 in pbar:
+                x_adv = x_0.clone()
+                noise = torch.randn_like(x_adv)
+                predictor.train()
+                for i in range(num_timesteps):
+                    # Forward process
+                    t = torch.randint(0, self.timesteps, (batch_size,), device=device).long()
+                    x_t = self._forward_process(x_adv, t, noise)
+                    x_t.requires_grad = True
 
-            # Predict original
-            x_0_hat = self.predict_x_0(x_t, t)
-            
-            # Predict using adversarial predictor
-            pred = predictor(x_0_hat[:, :-1, :])
-            target = x_0_hat[:, -1:, 0]
-            loss = predictor_lossfn(pred, target)
-            loss.backward()
+                    # Predict original
+                    x_0_hat = self.predict_x_0(x_t, t)
+                    
+                    # Predict using adversarial predictor
+                    pred = predictor(x_0_hat[:, :-1, :])
+                    target = x_0_hat[:, -1:, 0]
+                    loss = predictor_lossfn(pred, target)
+                    loss.backward()
 
-            # Compute adversarial gradient
-            grad = x_t.grad.data
-            x_adv = (x_adv + 0.01 * grad.sign()).clamp(-4, 4).detach()
-            # x_adv = (x_adv + 0.001 * grad.sign()).clamp(-4, 4).detach()
-            # x_adv = (x_adv + 0.0005 * grad.sign()).clamp(-4, 4).detach()
-            
-            # detach from gpu
-            torch.cuda.empty_cache()
-            gc.collect()
-
+                    # Compute adversarial gradient
+                    grad = x_t.grad.data
+                    x_adv = (x_adv + 0.005 * grad.sign()).clamp(-4, 4).detach()
+                    # x_adv = (x_adv + 0.001 * grad.sign()).clamp(-4, 4).detach()
+                    # x_adv = (x_adv + 0.0005 * grad.sign()).clamp(-4, 4).detach()
+                    
+                    if i+1 == num_timesteps:
+                        x_adv_list.append(x_adv.cpu())
+                    
+                    # detach from gpu
+                    torch.cuda.empty_cache()
+                    gc.collect()
+        
+        x_adv = torch.concat(x_adv_list)
+        
         return x_adv
