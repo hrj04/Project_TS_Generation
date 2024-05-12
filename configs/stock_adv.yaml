@@ -1,5 +1,5 @@
-model:
-  target: test.Diffusion_TS
+gen_model:
+  target: models.test.Diffusion_TS
   params:
     seq_length: 24
     n_feat: 5
@@ -8,16 +8,51 @@ model:
     loss_type: 'l1'
     beta_sch : "cosine"
     n_heads: 8
-    mlp_hidden_times: 8
+    mlp_hidden_times: 24
     n_layer_enc : 2
     n_layer_dec : 8
     use_ff : True
     use_adv : False
-    loss_decomposition: False
-solver:
+    loss_decomposition: True
+
+adv_model:
+  target: models.test.Diffusion_TS
+  params:
+    seq_length: 24
+    n_feat: 5
+    n_embd: 128
+    timesteps: 500
+    loss_type: 'l1'
+    beta_sch : "cosine"
+    n_heads: 8
+    mlp_hidden_times: 24
+    n_layer_enc : 2
+    n_layer_dec : 8
+    use_ff : True
+    use_adv : True
+    loss_decomposition: True
+
+gen_solver:
   base_lr: 1.0e-5
-  train_epochs: 20000
-  results_folder: ./check_points/stock
+  train_epochs: 5000
+  results_folder: ./check_points/stock/gen
+  
+  scheduler:
+    target: utils.lr_scheduler.ReduceLROnPlateauWithWarmup
+    params:
+      factor: 0.5
+      patience: 3000
+      min_lr: 1.0e-5
+      threshold: 1.0e-1
+      threshold_mode: rel
+      warmup_lr: 8.0e-4
+      warmup: 500 
+      verbose: False
+
+adv_solver:
+  base_lr: 1.0e-5
+  train_epochs: 5000
+  results_folder: ./check_points/stock/adv
   
   scheduler:
     target: utils.lr_scheduler.ReduceLROnPlateauWithWarmup

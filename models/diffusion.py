@@ -192,9 +192,10 @@ class DiffusionTSAdversarial(Diffusion_TS):
 
                     # Compute adversarial gradient
                     grad = x_t.grad.data
-                    x_adv = (x_adv + 0.005 * grad.sign()).clamp(-4, 4).detach()
+                    # x_adv = (x_adv + 0.005 * grad.sign()).clamp(-4, 4).detach()
                     # x_adv = (x_adv + 0.001 * grad.sign()).clamp(-4, 4).detach()
                     # x_adv = (x_adv + 0.0005 * grad.sign()).clamp(-4, 4).detach()
+                    x_adv = (x_adv + 0.0001 * grad.sign()).clamp(-4, 4).detach()
                     
                     if i+1 == num_timesteps:
                         x_adv_list.append(x_adv.cpu())
