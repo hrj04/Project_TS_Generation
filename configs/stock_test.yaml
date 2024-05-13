@@ -70,7 +70,6 @@ dataloader:
   train_dataset:
     target: data.datasets.PredictionStock
     params:
-      # symbol : 'AAPL, MSFT, NVDA, AMZN, COST'
       symbol : 'AAPL'
       sdate : '20000101'
       edate : '20131231'
