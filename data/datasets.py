@@ -258,3 +258,136 @@ class PredictionStock(Dataset):
     def __getitem__(self, idx):
         return self.data[idx]
 
+
+class DiffStock(Dataset):
+    def __init__(self,
+                symbol : str = "AAPL", 
+                sdate : str = "2000", 
+                edate : str = "2024",
+                window : int = 24,
+                save_ground_truth=True, 
+                normalize=True,
+                period='train'
+                ):
+        super().__init__()
+        raw_df = fdr.DataReader(symbol, sdate, edate)
+        self.data = self.generate_stock_sample(raw_df, window)
+        self.window = window
+        self.feature_dim = self.data.shape[-1]
+        self.dir = './output'
+        os.makedirs(self.dir, exist_ok=True)
+
+        if normalize:
+            self.data, self.mean, self.std = self._mean_std_scale(self.data)
+            
+        if save_ground_truth:
+            np.save(os.path.join(self.dir, f"stock_origin_data_{window}_{period}.npy"), self.data)
+            np.save(os.path.join(self.dir, f"stock_origin_mean_{window}_{period}.npy"), self.mean)
+            np.save(os.path.join(self.dir, f"stock_origin_std_{window}_{period}.npy"), self.std)
+
+        self.data = np.diff(self.data, 1, 1)
+        np.save(os.path.join(self.dir, f"stock_diff_data_{window}_{period}.npy"), self.data)
+
+    def generate_stock_sample(self, df, window):
+        raw_data = torch.from_numpy(df.to_numpy()).float()
+        data = self._extract_sliding_windows(raw_data, window)
+        
+        return data
+    
+    def _extract_sliding_windows(self, raw_data, window):
+        sample_n = len(raw_data) - window + 1
+        n_feature = raw_data.shape[-1]
+        data = torch.zeros(sample_n, window, n_feature)
+        for i in range(sample_n):
+            start = i
+            end = i + window    
+            data[i, :, :] = raw_data[start:end]
+            
+        return data
+    
+    def _mean_std_scale(self, data):
+        epsilon = 1e-8
+        preceding_data = data[:, :-1, :]
+        target_data = data[:, -1:, :]
+        mean = torch.mean(preceding_data, dim=1, keepdim=True)
+        std = torch.std(preceding_data, dim=1, keepdim=True)
+        
+        scaled_preceding_data = (preceding_data - mean) / (std + epsilon)
+        scaled_target_data = (target_data - mean) / (std + epsilon)
+        scaled_data = torch.cat((scaled_preceding_data, scaled_target_data), dim=1)
+        
+        return scaled_data, mean, std
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+
+class ClassificationStock(Dataset):
+    def __init__(self,
+                 symbol : str = "AAPL", 
+                 sdate : str = "2000", 
+                 edate : str = "2024",
+                 window : int = 24,
+                 save_ground_truth=True, 
+                 normalize=True,
+                 period='train'
+                 ):
+        super().__init__()
+        raw_df = fdr.DataReader(symbol, sdate, edate)
+        raw_df = raw_df[raw_df.columns[[4,0,1,2,3,5]]] # adj close, ~
+        
+        self.data = self.generate_stock_sample(raw_df, window)
+        self.window = window
+        self.feature_dim = self.data.shape[-1]
+        self.dir = './output'
+        os.makedirs(self.dir, exist_ok=True)
+
+        if normalize:
+            self.data, self.mean, self.std = self._mean_std_scale(self.data)
+            
+        if save_ground_truth:
+            np.save(os.path.join(self.dir, f"stock_ground_truth_data_{window}_{period}.npy"), self.data)
+            np.save(os.path.join(self.dir, f"stock_ground_truth_mean_{window}_{period}.npy"), self.mean)
+            np.save(os.path.join(self.dir, f"stock_ground_truth_std_{window}_{period}.npy"), self.std)
+
+    def generate_stock_sample(self, df, window):
+        raw_data = torch.from_numpy(df.to_numpy()).float()
+        data = self._extract_sliding_windows(raw_data, window)
+        
+        return data
+    
+    def _extract_sliding_windows(self, raw_data, window):
+        sample_n = len(raw_data) - window + 1
+        n_feature = raw_data.shape[-1]
+        data = torch.zeros(sample_n, window, n_feature)
+        for i in range(sample_n):
+            start = i
+            end = i + window    
+            data[i, :, :] = raw_data[start:end]
+            
+        return data
+
+    def _mean_std_scale(self, data):
+        epsilon = 1e-8
+        preceding_data = data[:, :-1, :]
+        target_data = torch.where(data[:, -1:, :] >= data[:, -2:-1, :], 
+                          torch.ones_like(data[:, -1:, :]), 
+                          torch.zeros_like(data[:, -1:, :]))
+        mean = torch.mean(preceding_data, dim=1, keepdim=True)
+        std = torch.std(preceding_data, dim=1, keepdim=True)
+        
+        scaled_preceding_data = (preceding_data - mean) / (std + epsilon)
+        scaled_data = torch.cat((scaled_preceding_data, target_data), dim=1)
+        
+        return scaled_data, mean, std
+    
+
+    
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]

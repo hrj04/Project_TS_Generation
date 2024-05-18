@@ -1,0 +1,62 @@
+model:
+  target: models.test.Diffusion_TS
+  params:
+    seq_length: 24
+    n_feat: 6
+    n_embd: 64
+    timesteps: 100
+    loss_type: 'l1'
+    beta_sch : "consine"
+    n_heads: 4
+    mlp_hidden_times: 4
+    n_layer_enc : 2
+    n_layer_dec : 2
+    use_ff : True
+    loss_decomposition: True
+
+solver:
+  base_lr: 1.0e-5
+  train_epochs: 10000
+  results_folder: ./check_points/stock/diff
+  
+  scheduler:
+    target: utils.lr_scheduler.ReduceLROnPlateauWithWarmup
+    params:
+      factor: 0.5
+      patience: 3000
+      min_lr: 1.0e-5
+      threshold: 1.0e-1
+      threshold_mode: rel
+      warmup_lr: 8.0e-4
+      warmup: 500 
+      verbose: False
+
+dataloader:
+  train_dataset:
+    target: data.datasets.ClassificationStock
+    params:
+      # symbol : 'AAPL, MSFT, NVDA, AMZN, COST'
+      symbol : 'AAPL'
+      sdate : '20000101'
+      edate : '20131231'
+      window: 24 
+      save_ground_truth: True
+      normalize: True
+      period: train
+    shuffle: True
+
+  test_dataset:
+    target: data.datasets.ClassificationStock
+    params:
+      symbol : 'AAPL'
+      sdate : '20140101'
+      edate : '20241231'
+      window: 24  
+      save_ground_truth: True
+      normalize: True
+      period: test
+    shuffle: False
+
+  batch_size: 128
+  sample_size: 256
+  

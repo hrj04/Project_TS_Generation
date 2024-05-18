@@ -55,11 +55,11 @@ class Trainer(object):
         with tqdm(total=self.train_epochs) as pbar:
             while curr_epoch < self.train_epochs:
                 data = next(self.dl).to(self.device)
-                combined_loss, l1_loss, fourier_loss, adv_loss = self.model(data)
+                combined_loss, l1_loss, fourier_loss = self.model(data)
                 combined_loss.backward()
                 combined_loss = combined_loss.item()
 
-                description = f'combiend_loss: {combined_loss:.6f} l1_loss : {l1_loss.item():.6f} fourier_loss : {fourier_loss.item():.6f} adv_loss : {adv_loss.item():.6f}'
+                description = f'combiend_loss: {combined_loss:.6f} l1_loss : {l1_loss.item():.6f} fourier_loss : {fourier_loss.item():.6f}'
                 pbar.set_description(description)
                 
                 self.opt.step()
