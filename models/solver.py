@@ -27,7 +27,7 @@ class Trainer(object):
         sc_cfg['params']['optimizer'] = self.opt
         self.sch = instantiate_from_config(sc_cfg)
 
-    def train(self):
+    def train(self, save_disc="model"):
         self.model.train()
         curr_epoch = 0
         with tqdm(initial=curr_epoch, total=self.train_epochs) as pbar:
@@ -46,10 +46,10 @@ class Trainer(object):
                 pbar.update(1)
                 
                 if (curr_epoch) % 5000 == 0 :
-                    path = os.path.join(self.results_folder, f"model_{curr_epoch}.pth")
+                    path = os.path.join(self.results_folder, f"{save_disc}_{curr_epoch}.pth")
                     torch.save(self.model.state_dict(), path)
                 
-    def train_decomp(self):
+    def train_decomp(self, save_disc="model"):
         self.model.train()
         curr_epoch = 0
         with tqdm(total=self.train_epochs) as pbar:
@@ -69,7 +69,7 @@ class Trainer(object):
                 pbar.update(1)
 
                 if curr_epoch % 5000 == 0 :
-                    path = os.path.join(self.results_folder, f"model_{curr_epoch}.pth")
+                    path = os.path.join(self.results_folder, f"{save_disc}_{curr_epoch}.pth")
                     torch.save(self.model.state_dict(), path)
 
 

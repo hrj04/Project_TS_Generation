@@ -2,21 +2,21 @@ model:
   target: models.test.Diffusion_TS
   params:
     seq_length: 23
-    n_feat: 6
-    n_embd: 128
-    timesteps: 300
+    n_feat: 5
+    n_embd: 256
+    timesteps: 100
     loss_type: 'l1'
     beta_sch : "consine"
-    n_heads: 4
-    mlp_hidden_times: 2
+    n_heads: 8
+    mlp_hidden_times: 24
     n_layer_enc : 2
-    n_layer_dec : 4
-    use_ff : True
+    n_layer_dec : 8
+    use_ff : False
     loss_decomposition: True
 
 solver:
   base_lr: 1.0e-5
-  train_epochs: 12000
+  train_epochs: 10000
   results_folder: ./check_points/stock/diff
   
   scheduler:
@@ -35,8 +35,8 @@ dataloader:
   train_dataset:
     target: data.datasets.DiffStock
     params:
-      # symbol : 'AAPL, MSFT, NVDA, AMZN, COST'
-      symbol : 'AAPL'
+      symbol : 'AAPL, MSFT, NVDA, AMZN, COST'
+      # symbol : 'AAPL'
       sdate : '20000101'
       edate : '20131231'
       window: 24 
@@ -48,7 +48,8 @@ dataloader:
   test_dataset:
     target: data.datasets.DiffStock
     params:
-      symbol : 'AAPL'
+      symbol : 'AAPL, MSFT, NVDA, AMZN, COST'
+      # symbol : 'AAPL'
       sdate : '20140101'
       edate : '20241231'
       window: 24  

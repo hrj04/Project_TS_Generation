@@ -35,8 +35,8 @@ dataloader:
   train_dataset:
     target: data.datasets.PredictionStock
     params:
-      # symbol : 'AAPL, MSFT, NVDA, AMZN, COST'
-      symbol : 'AAPL'
+      symbol : 'AAPL, MSFT, NVDA, AMZN, COST'
+      # symbol : 'AAPL'
       sdate : '20000101'
       edate : '20131231'
       window: 24 
@@ -48,7 +48,8 @@ dataloader:
   test_dataset:
     target: data.datasets.PredictionStock
     params:
-      symbol : 'AAPL'
+      symbol : 'AAPL, MSFT, NVDA, AMZN, COST'
+      # symbol : 'AAPL'
       sdate : '20140101'
       edate : '20241231'
       window: 24  
