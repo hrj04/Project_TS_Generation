@@ -16,7 +16,7 @@ model:
 
 solver:
   base_lr: 1.0e-5
-  train_epochs: 10000
+  train_epochs: 30000
   results_folder: ./check_points/stock/diff
   
   scheduler:

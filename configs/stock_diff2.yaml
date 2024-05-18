@@ -2,16 +2,16 @@ model:
   target: models.test.Diffusion_TS
   params:
     seq_length: 24
-    n_feat: 6
-    n_embd: 64
+    n_feat: 5
+    n_embd: 256
     timesteps: 100
     loss_type: 'l1'
     beta_sch : "consine"
-    n_heads: 4
-    mlp_hidden_times: 4
+    n_heads: 8
+    mlp_hidden_times: 24
     n_layer_enc : 2
-    n_layer_dec : 2
-    use_ff : True
+    n_layer_dec : 8
+    use_ff : False
     loss_decomposition: True
 
 solver:
@@ -24,7 +24,7 @@ solver:
     params:
       factor: 0.5
       patience: 3000
-      min_lr: 1.0e-5
+      min_lr: 5.0e-6
       threshold: 1.0e-1
       threshold_mode: rel
       warmup_lr: 8.0e-4
