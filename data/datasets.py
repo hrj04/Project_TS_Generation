@@ -196,7 +196,7 @@ class FromNumpyDataset(Dataset):
         return self.data[idx]
 
 
-class PredictionStock(Dataset):
+class Stock(Dataset):
     def __init__(self,
                  symbol : str = "AAPL", 
                  sdate : str = "2000", 
@@ -258,41 +258,42 @@ class PredictionStock(Dataset):
     def __getitem__(self, idx):
         return self.data[idx]
 
-
-class DiffStock(Dataset):
+    
+class StockDifferencing(Dataset):
     def __init__(self,
-                symbol : str = "AAPL", 
-                sdate : str = "2000", 
-                edate : str = "2024",
+                symbol : str = "AAPL, MSFT, NVDA, AMZN, COST", 
+                sdate : str = "20000101", 
+                edate : str = "20131231",
                 window : int = 24,
                 save_ground_truth=True, 
-                normalize=True,
                 period='train'
                 ):
         super().__init__()
         raw_df = fdr.DataReader(symbol, sdate, edate)
-        self.data = self.generate_stock_sample(raw_df, window)
+        self.data_diff, self.data, self.mean, self.std = self.generate_stock_sequence(raw_df, window)
         self.window = window
         self.feature_dim = self.data.shape[-1]
-        self.dir = './output'
+        self.dir = './dataset/stock_diff'
         os.makedirs(self.dir, exist_ok=True)
-
-        if normalize:
-            self.data, self.mean, self.std = self._mean_std_scale(self.data)
-            
+        
         if save_ground_truth:
-            np.save(os.path.join(self.dir, f"stock_origin_data_{window}_{period}.npy"), self.data)
-            np.save(os.path.join(self.dir, f"stock_origin_mean_{window}_{period}.npy"), self.mean)
-            np.save(os.path.join(self.dir, f"stock_origin_std_{window}_{period}.npy"), self.std)
-
-        self.data = np.diff(self.data, 1, 1)
-        np.save(os.path.join(self.dir, f"stock_diff_data_{window}_{period}.npy"), self.data)
-
-    def generate_stock_sample(self, df, window):
+            np.save(os.path.join(self.dir, f"origin_diff_{window}_{period}.npy"), self.data_diff)
+            np.save(os.path.join(self.dir, f"origin_norm_{window}_{period}.npy"), self.data)
+            np.save(os.path.join(self.dir, f"origin_mean_{window}_{period}.npy"), self.mean)
+            np.save(os.path.join(self.dir, f"origin_std_{window}_{period}.npy"), self.std)
+    
+    def generate_stock_sequence(self, df, window):
         raw_data = torch.from_numpy(df.to_numpy()).float()
         data = self._extract_sliding_windows(raw_data, window)
+        data, mean, std = self._mean_std_scale(data)
+        data_diff = self._differencing(data, n_order=1, axis=1)
+
+        return data_diff, data, mean, std
+    
+    def _differencing(self, raw_data, n_order, axis):
+        data_diff = np.diff(raw_data, n_order, axis)
         
-        return data
+        return data_diff
     
     def _extract_sliding_windows(self, raw_data, window):
         sample_n = len(raw_data) - window + 1
@@ -307,87 +308,20 @@ class DiffStock(Dataset):
     
     def _mean_std_scale(self, data):
         epsilon = 1e-8
-        preceding_data = data[:, :-1, :]
+        past_data = data[:, :-1, :]
         target_data = data[:, -1:, :]
-        mean = torch.mean(preceding_data, dim=1, keepdim=True)
-        std = torch.std(preceding_data, dim=1, keepdim=True)
+        mean = torch.mean(past_data, dim=1, keepdim=True)
+        std = torch.std(past_data, dim=1, keepdim=True)
         
-        scaled_preceding_data = (preceding_data - mean) / (std + epsilon)
-        scaled_target_data = (target_data - mean) / (std + epsilon)
-        scaled_data = torch.cat((scaled_preceding_data, scaled_target_data), dim=1)
+        past_data_normalized = (past_data - mean) / (std + epsilon)
+        target_data_normalized = (target_data - mean) / (std + epsilon)
+        data_normalized = torch.cat((past_data_normalized, target_data_normalized), dim=1)
         
-        return scaled_data, mean, std
+        return data_normalized, mean, std
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        return self.data[idx]
+        return self.data_diff[idx], self.data[idx], self.mean[idx], self.std[idx]
 
-
-class ClassificationStock(Dataset):
-    def __init__(self,
-                 symbol : str = "AAPL", 
-                 sdate : str = "2000", 
-                 edate : str = "2024",
-                 window : int = 24,
-                 save_ground_truth=True, 
-                 normalize=True,
-                 period='train'
-                 ):
-        super().__init__()
-        raw_df = fdr.DataReader(symbol, sdate, edate)
-        raw_df = raw_df[raw_df.columns[[4,0,1,2,3,5]]] # adj close, ~
-        
-        self.data = self.generate_stock_sample(raw_df, window)
-        self.window = window
-        self.feature_dim = self.data.shape[-1]
-        self.dir = './output'
-        os.makedirs(self.dir, exist_ok=True)
-
-        if normalize:
-            self.data, self.mean, self.std = self._mean_std_scale(self.data)
-            
-        if save_ground_truth:
-            np.save(os.path.join(self.dir, f"stock_ground_truth_data_{window}_{period}.npy"), self.data)
-            np.save(os.path.join(self.dir, f"stock_ground_truth_mean_{window}_{period}.npy"), self.mean)
-            np.save(os.path.join(self.dir, f"stock_ground_truth_std_{window}_{period}.npy"), self.std)
-
-    def generate_stock_sample(self, df, window):
-        raw_data = torch.from_numpy(df.to_numpy()).float()
-        data = self._extract_sliding_windows(raw_data, window)
-        
-        return data
-    
-    def _extract_sliding_windows(self, raw_data, window):
-        sample_n = len(raw_data) - window + 1
-        n_feature = raw_data.shape[-1]
-        data = torch.zeros(sample_n, window, n_feature)
-        for i in range(sample_n):
-            start = i
-            end = i + window    
-            data[i, :, :] = raw_data[start:end]
-            
-        return data
-
-    def _mean_std_scale(self, data):
-        epsilon = 1e-8
-        preceding_data = data[:, :-1, :]
-        target_data = torch.where(data[:, -1:, :] >= data[:, -2:-1, :], 
-                          torch.ones_like(data[:, -1:, :]), 
-                          torch.zeros_like(data[:, -1:, :]))
-        mean = torch.mean(preceding_data, dim=1, keepdim=True)
-        std = torch.std(preceding_data, dim=1, keepdim=True)
-        
-        scaled_preceding_data = (preceding_data - mean) / (std + epsilon)
-        scaled_data = torch.cat((scaled_preceding_data, target_data), dim=1)
-        
-        return scaled_data, mean, std
-    
-
-    
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        return self.data[idx]

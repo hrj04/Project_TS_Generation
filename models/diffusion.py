@@ -6,10 +6,6 @@ from einops import reduce
 from tqdm.auto import tqdm
 from models.transformer import Transformer
 from utils.utils import extract, cosine_beta_schedule, linear_beta_schedule
-from models.predictor import GRU
-from torch.optim import Adam
-import gc
-from torch.utils.data import DataLoader, TensorDataset
 
 
 class Diffusion_TS(nn.Module):
@@ -25,7 +21,7 @@ class Diffusion_TS(nn.Module):
             mlp_hidden_times,
             n_layer_enc,
             n_layer_dec,
-            use_ff
+            use_ff,
     ):
         super().__init__()
         self.transformer = Transformer(n_feat=n_feat,
@@ -36,7 +32,7 @@ class Diffusion_TS(nn.Module):
                                        n_layer_enc=n_layer_enc,
                                        n_layer_dec=n_layer_dec)
         self.timesteps = int(timesteps)
-        self.loss_fn = F.l1_loss if loss_type == "l1" else F.l2_loss
+        self.loss_fn = F.l1_loss if loss_type == "l1" else F.mse_loss
         self.seq_length = seq_length
         self.n_feat = n_feat
         self.ff_weight = math.sqrt(self.seq_length) / 5
@@ -60,7 +56,8 @@ class Diffusion_TS(nn.Module):
         register_buffer('posterior_mean_coef2', (1. - self.alphas_cumprod_prev) * torch.sqrt(self.alphas) / (1. - self.alphas_cumprod))
 
         register_buffer('loss_weight', torch.sqrt(self.alphas) * torch.sqrt(1. - self.alphas_cumprod) / self.betas / 100)
-
+        
+    
     def forward(self, x_0):
         batch, device = x_0.shape[0], x_0.device
         t = torch.randint(0, self.timesteps, (batch,), device=device).long()
@@ -79,9 +76,10 @@ class Diffusion_TS(nn.Module):
         x_0_pred = self.predict_x_0(x_t, t)
         
         # l1 loss
-        train_loss = self.loss_fn(x_0_pred, x_0, reduction='none')
-        
+        l1_loss = self.loss_fn(x_0_pred, x_0, reduction='none')
+
         # fourier_loss
+        fourier_loss = torch.tensor([0.])
         if self.use_ff:
             fourier_loss = torch.tensor([0.])
             fft1 = torch.fft.fft(x_0_pred.transpose(1, 2), norm='forward')
@@ -90,15 +88,16 @@ class Diffusion_TS(nn.Module):
             fourier_real = self.loss_fn(torch.real(fft1), torch.real(fft2), reduction='none')
             fourier_img = self.loss_fn(torch.imag(fft1), torch.imag(fft2), reduction='none')
             fourier_loss = fourier_real + fourier_img
+            fourier_loss = self.ff_weight * fourier_loss
+            combined_loss = l1_loss + fourier_loss
+            combined_loss = reduce(combined_loss, 'b ... -> b (...)', 'mean')
+        else:
+            combined_loss = l1_loss
             
-            # combine loss function
-            train_loss +=  self.ff_weight * fourier_loss
-            train_loss = reduce(train_loss, 'b ... -> b (...)', 'mean')
-        
-        train_loss = train_loss * extract(self.loss_weight, t, train_loss.shape)
-        
-        return train_loss.mean()
+        combined_loss = combined_loss * extract(self.loss_weight, t, combined_loss.shape)
 
+        return combined_loss.mean(), l1_loss.mean(), fourier_loss.mean()
+    
     def _forward_process(self, x_0, t, noise):
         coef1 = extract(self.sqrt_alphas_cumprod, t, x_0.shape)
         coef2 = extract(self.sqrt_one_minus_alphas_cumprod, t, x_0.shape)
@@ -107,9 +106,9 @@ class Diffusion_TS(nn.Module):
         return x_t
     
     @torch.no_grad()
-    def generate_mts(self, n_sample):
+    def generate_mts(self, batch_size):
         device = self.betas.device
-        shape = (n_sample, self.seq_length, self.n_feat)
+        shape = (batch_size, self.seq_length, self.n_feat)
         
         x_T = torch.randn(shape, device=device)
         synthetic_mts = self._reverse_process(x_T=x_T)
@@ -149,61 +148,3 @@ class Diffusion_TS(nn.Module):
         
         return post_log_variance
 
-
-class DiffusionTSAdversarial(Diffusion_TS):
-    def __init__(self, 
-                 seq_length, 
-                 n_feat, 
-                 n_embd, 
-                 timesteps, 
-                 loss_type, 
-                 beta_sch, 
-                 n_heads, 
-                 mlp_hidden_times, 
-                 n_layer_enc, 
-                 n_layer_dec, 
-                 use_ff):
-        super().__init__(seq_length, n_feat, n_embd, timesteps, loss_type, beta_sch, n_heads, mlp_hidden_times, n_layer_enc, n_layer_dec, use_ff)
-    
-    def generate_adversarial(self, x_0, predictor, batch_size, num_timesteps=10):
-        predictor_lossfn = F.l1_loss
-        device = x_0.device
-        ori_adv_dl = DataLoader(x_0, batch_size=128, shuffle=True, drop_last=True)
-        x_adv_list = []
-        with tqdm(ori_adv_dl) as pbar:
-            for x_0 in pbar:
-                x_adv = x_0.clone()
-                noise = torch.randn_like(x_adv)
-                predictor.train()
-                for i in range(num_timesteps):
-                    # Forward process
-                    t = torch.randint(0, self.timesteps, (batch_size,), device=device).long()
-                    x_t = self._forward_process(x_adv, t, noise)
-                    x_t.requires_grad = True
-
-                    # Predict original
-                    x_0_hat = self.predict_x_0(x_t, t)
-                    
-                    # Predict using adversarial predictor
-                    pred = predictor(x_0_hat[:, :-1, :])
-                    target = x_0_hat[:, -1:, 0]
-                    loss = predictor_lossfn(pred, target)
-                    loss.backward()
-
-                    # Compute adversarial gradient
-                    grad = x_t.grad.data
-                    # x_adv = (x_adv + 0.005 * grad.sign()).clamp(-4, 4).detach()
-                    # x_adv = (x_adv + 0.001 * grad.sign()).clamp(-4, 4).detach()
-                    # x_adv = (x_adv + 0.0005 * grad.sign()).clamp(-4, 4).detach()
-                    x_adv = (x_adv + 0.0001 * grad.sign()).clamp(-4, 4).detach()
-                    
-                    if i+1 == num_timesteps:
-                        x_adv_list.append(x_adv.cpu())
-                    
-                    # detach from gpu
-                    torch.cuda.empty_cache()
-                    gc.collect()
-        
-        x_adv = torch.concat(x_adv_list)
-        
-        return x_adv

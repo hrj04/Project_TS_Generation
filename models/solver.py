@@ -15,7 +15,7 @@ class Trainer(object):
         self.device = self.model.betas.device
         self.train_epochs = config_solver['train_epochs']
         self.dl = cycle(dataloader)        
-        self.results_folder = Path(config_solver['results_folder'] + f'_{model.seq_length}')
+        self.results_folder = config_solver['results_folder']
         os.makedirs(self.results_folder, exist_ok=True)
 
         # Only optimizer for Transformer parameters
@@ -27,38 +27,16 @@ class Trainer(object):
         sc_cfg['params']['optimizer'] = self.opt
         self.sch = instantiate_from_config(sc_cfg)
 
-    def train(self, save_disc="model"):
-        self.model.train()
-        curr_epoch = 0
-        with tqdm(initial=curr_epoch, total=self.train_epochs) as pbar:
-            while curr_epoch < self.train_epochs:
-                data = next(self.dl).to(self.device)
-                loss = self.model(data)
-                loss.backward()
-                loss = loss.item()
-                pbar.set_description(f'loss: {loss:.6f}')
-                
-                self.opt.step()
-                self.sch.step(loss)
-                self.opt.zero_grad()
-                curr_epoch += 1
-
-                pbar.update(1)
-                
-                if (curr_epoch) % 5000 == 0 :
-                    path = os.path.join(self.results_folder, f"{save_disc}_{curr_epoch}.pth")
-                    torch.save(self.model.state_dict(), path)
-                
-    def train_decomp(self, save_disc="model"):
+    def train(self):
         self.model.train()
         curr_epoch = 0
         with tqdm(total=self.train_epochs) as pbar:
             while curr_epoch < self.train_epochs:
-                data = next(self.dl).to(self.device)
+                data, *_ = next(self.dl)
+                data = data.to(self.device)
                 combined_loss, l1_loss, fourier_loss = self.model(data)
                 combined_loss.backward()
                 combined_loss = combined_loss.item()
-
                 description = f'combiend_loss: {combined_loss:.6f} l1_loss : {l1_loss.item():.6f} fourier_loss : {fourier_loss.item():.6f}'
                 pbar.set_description(description)
                 
@@ -67,11 +45,11 @@ class Trainer(object):
                 self.opt.zero_grad()
                 curr_epoch += 1
                 pbar.update(1)
-
+                
                 if curr_epoch % 5000 == 0 :
-                    path = os.path.join(self.results_folder, f"{save_disc}_{curr_epoch}.pth")
+                    path = os.path.join(self.results_folder, f"DiffusionTS_{curr_epoch}.pth")
                     torch.save(self.model.state_dict(), path)
-
+        
 
 def train_prediction_model(model, dataloader, criterion, optimizer, device, epochs=100, description="", save_path=""):
     model.train()
