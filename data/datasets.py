@@ -196,6 +196,11 @@ class FromNumpyDataset(Dataset):
         return self.data[idx]
 
 
+
+
+
+
+
 class Stock(Dataset):
     def __init__(self,
                  symbol : str = "AAPL, MSFT, NVDA, AMZN, COST", 
@@ -245,7 +250,7 @@ class Stock(Dataset):
         target_data_normalized = (target_data - mean) / (std + epsilon)
         data_normalized = torch.cat((past_data_normalized, target_data_normalized), dim=1)
         
-        return data_normalized, mean, std
+        return data_normalized.numpy(), mean.numpy(), std.numpy()
     
     def __len__(self):
         return len(self.data)
@@ -311,7 +316,7 @@ class StockDifferencing(Dataset):
         target_data_normalized = (target_data - mean) / (std + epsilon)
         data_normalized = torch.cat((past_data_normalized, target_data_normalized), dim=1)
         
-        return data_normalized, mean, std
+        return data_normalized.numpy(), mean.numpy(), std.numpy()
 
     def __len__(self):
         return len(self.data)
