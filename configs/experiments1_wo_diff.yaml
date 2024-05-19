@@ -1,7 +1,7 @@
 model:
   target: models.diffusion.Diffusion_TS
   params:
-    seq_length: 23
+    seq_length: 24
     n_feat: 5
     n_embd: 256
     timesteps: 100
@@ -15,8 +15,8 @@ model:
 
 solver:
   base_lr: 1.0e-5
-  train_epochs: 20000
-  results_folder: ./check_points/experiments1
+  train_epochs: 10000
+  results_folder: ./check_points/experiments1_wo_diff
   
   scheduler:
     target: utils.lr_scheduler.ReduceLROnPlateauWithWarmup
@@ -32,7 +32,7 @@ solver:
 
 dataloader:
   train_dataset:
-    target: data.datasets.StockDifferencing
+    target: data.datasets.Stock
     params:
       symbol : 'AAPL, MSFT, NVDA, AMZN, COST'
       sdate : '20000101'
@@ -43,7 +43,7 @@ dataloader:
     shuffle: True
 
   test_dataset:
-    target: data.datasets.StockDifferencing
+    target: data.datasets.Stock
     params:
       symbol : 'AAPL, MSFT, NVDA, AMZN, COST'
       sdate : '20140101'
